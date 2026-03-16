@@ -1,0 +1,16 @@
+{
+  "name": "Smart Life Log",
+  "short_name": "LifeLog",
+  "description": "我的專屬雲端日記",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#525f7f",
+  "theme_color": "#5e72e4",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

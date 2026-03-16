@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart Life Log</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="icon.png">
+    <link rel="apple-touch-icon" href="icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#525f7f">
+
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+      /* --- 原本的 CSS 樣式完全保留 --- */
+      body { font-family: 'Noto Sans TC', sans-serif; background-color: #525f7f; margin: 0; padding: 0; color: #333; padding-bottom: 100px; }
+      .container { max-width: 600px; margin: 0 auto; min-height: 100vh; padding: 20px; background: transparent; }
+      .nav-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); display: flex; justify-content: center; padding: 15px 0; box-shadow: 0 -4px 20px rgba(0,0,0,0.15); z-index: 1000; gap: 30px; }
+      .nav-item { text-align: center; color: #8898aa; cursor: pointer; width: 110px; padding: 8px 0; border-radius: 30px; transition: all 0.3s ease; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      .nav-item.active { color: #5e72e4; background-color: #f4f7fe; font-weight: bold; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(94, 114, 228, 0.15); }
+      .nav-icon { font-size: 20px; margin-bottom: 2px; }
+      .nav-text { font-size: 13px; }
+      .page-content { display: none; animation: fadeIn 0.4s ease; }
+      .page-content.active { display: block; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+      #page-write { background: white; padding: 30px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+      h2 { color: #525f7f; margin-top: 0; text-align: center; font-weight: 700; margin-bottom: 25px; }
+      label { display: block; margin-bottom: 8px; font-weight: 500; color: #555; font-size: 0.95em; }
+      textarea, input[type="text"], input[type="date"] { width: 100%; padding: 14px; margin-bottom: 20px; border: 2px solid #e9ecef; border-radius: 10px; font-size: 16px; box-sizing: border-box; transition: border-color 0.3s; background: #f8f9fa; }
+      textarea:focus, input:focus { border-color: #5e72e4; outline: none; background: white; }
+      textarea { height: 150px; resize: none; }
+      button { transition: transform 0.1s; }
+      button:active { transform: scale(0.98); }
+      button.primary-btn { width: 100%; padding: 16px; background: linear-gradient(135deg, #5e72e4 0%, #825ee4 100%); color: white; border: none; border-radius: 10px; font-size: 18px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(94, 114, 228, 0.3); }
+      button.secondary-btn { width: 100%; padding: 14px; background-color: #2dce89; color: white; border: none; border-radius: 10px; font-size: 16px; cursor: pointer; margin-top: 10px; box-shadow: 0 4px 15px rgba(45, 206, 137, 0.3); }
+      .loading { display: none; text-align: center; margin-top: 15px; color: #8898aa; }
+      .diary-card { background: white; border: none; border-radius: 16px; padding: 25px; margin-bottom: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); position: relative; }
+      .diary-img { width: 100%; border-radius: 12px; margin-top: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+      .search-container { background: white; padding: 20px; border-radius: 16px; margin-bottom: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+      .diary-date-header { font-size: 1.3em; font-weight: 700; color: #5e72e4; border-bottom: 2px solid #f4f5f7; padding-bottom: 15px; margin-bottom: 20px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div id="page-write" class="page-content active">
+        <h2>📝 記錄生活</h2>
+        <form id="diaryForm" onsubmit="handleFormSubmit(this)">
+          <label>日期 (若要補寫請選擇)</label>
+          <input type="date" name="customDate">
+          <label>發生了什麼事？</label>
+          <textarea name="content" placeholder="寫下今天的快樂碎片..." required></textarea>
+          <label>標籤</label>
+          <input type="text" name="tags" placeholder="#心情 #靈感">
+          <label>照片 (可多選)</label>
+          <input type="file" name="myFile" accept="image/*" multiple>
+          <hr style="margin: 25px 0; border: 0; border-top: 1px dashed #e9ecef;">
+          <button type="submit" id="submitBtn" class="primary-btn">儲存日記</button>
+          <button type="button" id="importBtn" onclick="handleImport()" class="secondary-btn">📂 匯入今日同步資料夾檔案</button>
+          <div id="status" class="loading">正在寫入回憶...</div>
+        </form>
+      </div>
+
+      <div id="page-read" class="page-content">
+        <div class="search-container">
+          <div style="display:flex; gap:10px; margin-bottom:15px;">
+            <input type="text" id="searchKeyword" placeholder="搜尋關鍵字..." style="margin:0; flex:2;">
+            <input type="date" id="searchDate" style="margin:0; flex:1;">
+          </div>
+          <button onclick="performSearch()" class="primary-btn" style="padding:12px; font-size:16px; background: #5e72e4;">🔍 搜尋日記</button>
+          <button onclick="resetSearch()" style="width:100%; margin-top:10px; background:none; border:none; color:#8898aa; cursor:pointer; font-size:14px;">↺ 清除搜尋 / 顯示最近</button>
+        </div>
+        <div id="diaryContainer">
+          <div style="text-align:center; padding: 40px; color:rgba(255,255,255,0.7);">正在喚醒回憶...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="nav-bar">
+      <div class="nav-item active" onclick="switchTab('write')">
+        <span class="nav-icon">✏️</span><span class="nav-text">寫日記</span>
+      </div>
+      <div class="nav-item" onclick="switchTab('read')">
+        <span class="nav-icon">📖</span><span class="nav-text">看回憶</span>
+      </div>
+    </div>
+
+    <div id="editModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:2000; backdrop-filter: blur(5px);">
+      <div style="background:white; margin: 10% auto; width: 85%; max-width:500px; padding:30px; border-radius:16px; box-shadow:0 10px 40px rgba(0,0,0,0.3);">
+        <h3 style="margin-top:0; color:#5e72e4; text-align:center;">✏️ 編輯日記</h3>
+        <input type="hidden" id="editId">
+        <label>內容</label><textarea id="editContent" style="height:150px;"></textarea>
+        <label>標籤</label><input type="text" id="editTags">
+        <label>更換/補上照片 (選填)</label>
+        <input type="file" id="editFile" accept="image/*" style="padding:10px; margin-bottom:15px; border:1px solid #ddd; background:white;">
+        <div style="display:flex; gap:15px; margin-top:15px;">
+          <button onclick="closeEditModal()" style="flex:1; padding:12px; border:1px solid #ddd; background:white; border-radius:10px; color:#555;">取消</button>
+          <button onclick="saveEdit()" style="flex:1; padding:12px; background:#5e72e4; color:white; border:none; border-radius:10px; font-weight:bold;">儲存修改</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ⚠️ 關鍵設定：請填入您剛剛重新部署後取得的 Web App 網址！
+      const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwaAPptJqC2a6yjgMas4VSr5D5YncKopX1h-n4joKtYnERwPvV6eCNOjYYKpErN_ao8/exec";
+
+      // --- 核心：統一負責與後端通訊的 Fetch 函式 ---
+      async function apiCall(actionName, payloadData = {}) {
+        try {
+          const response = await fetch(GAS_API_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'text/plain;charset=utf-8', // 使用 text/plain 避免跨域預檢錯誤
+            },
+            body: JSON.stringify({
+              action: actionName,
+              data: payloadData
+            })
+          });
+          return await response.json();
+        } catch (error) {
+          console.error("API 請求失敗:", error);
+          throw error;
+        }
+      }
+
+      // 1. 頁籤切換
+      function switchTab(tabName) {
+        var navItems = document.querySelectorAll('.nav-item');
+        for (var i = 0; i < navItems.length; i++) navItems[i].classList.remove('active');
+        event.currentTarget.classList.add('active');
+        
+        var pages = document.querySelectorAll('.page-content');
+        for (var j = 0; j < pages.length; j++) pages[j].classList.remove('active');
+        document.getElementById('page-' + tabName).classList.add('active');
+        
+        window.scrollTo(0,0);
+        if (tabName === 'read') loadDiaries(); 
+      }
+
+      // 2. 寫日記提交
+      function handleFormSubmit(form) {
+        event.preventDefault();
+        var btn = document.getElementById("submitBtn");
+        var status = document.getElementById("status");
+        
+        btn.disabled = true; 
+        btn.innerText = "打包上傳中..."; 
+        status.style.display = "block";
+
+        var fileInput = form.myFile;
+        var files = fileInput.files;
+        var filePromises = [];
+
+        for (let i = 0; i < files.length; i++) {
+          let currentFile = files[i];
+          filePromises.push(new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function(e) {
+              resolve({ name: currentFile.name, type: currentFile.type, data: e.target.result });
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(currentFile);
+          }));
+        }
+
+        Promise.all(filePromises).then(function(processedFiles) {
+          var payload = {
+            customDate: form.customDate.value,
+            content: form.content.value,
+            tags: form.tags.value,
+            files: processedFiles
+          };
+
+          // ✨ 使用新的 apiCall 呼叫後端
+          apiCall('saveDiaryV8', payload).then(function(response) {
+              if(response.success === false) throw new Error(response.message);
+              alert(response.message);
+              document.getElementById("diaryForm").reset();
+              btn.disabled = false; btn.innerText = "儲存日記"; status.style.display = "none";
+              document.querySelectorAll('.nav-item')[1].click(); 
+          }).catch(function(e) {
+              alert("❌ 錯誤：" + (e.message || "上傳失敗"));
+              btn.disabled = false; btn.innerText = "儲存日記"; status.style.display = "none";
+          });
+        }).catch(function(err) {
+          alert("❌ 檔案讀取失敗：" + err);
+          btn.disabled = false; btn.innerText = "儲存日記"; status.style.display = "none";
+        });
+      }
+
+      // 3. 匯入功能
+      function handleImport() {
+        if(!confirm("確定要匯入？")) return;
+        var btn = document.getElementById("importBtn");
+        var status = document.getElementById("status");
+        btn.disabled = true; btn.innerText = "掃描中..."; status.style.display = "block";
+        
+        apiCall('importFromSyncFolder').then(function(r) {
+           alert(r.message);
+           btn.disabled = false; btn.innerText = "📂 匯入今日同步資料夾檔案"; status.style.display = "none";
+           document.querySelectorAll('.nav-item')[1].click();
+        }).catch(function(e) {
+           alert("❌ 匯入發生錯誤：" + e);
+           btn.disabled = false; btn.innerText = "📂 匯入今日同步資料夾檔案"; status.style.display = "none";
+        });
+      }
+
+      // 4. 讀取與搜尋
+      function loadDiaries() {
+        document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; padding:40px; color:rgba(255,255,255,0.7);">正在喚醒回憶...</div>';
+        apiCall('getRecentDiaries').then(r => {
+           const data = r.data || r; // 相容不同的回傳格式
+           renderDiaries(data);
+        }).catch(e => {
+           document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; color:white;">❌ 讀取失敗</div>';
+        });
+      }
+
+      function performSearch() {
+        var keyword = document.getElementById("searchKeyword").value;
+        var date = document.getElementById("searchDate").value;
+        document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; padding:40px; color:rgba(255,255,255,0.7);">🔍 搜尋中...</div>';
+        
+        apiCall('searchLogs', { keyword: keyword, searchDate: date }).then(r => {
+           const data = r.data || r;
+           renderDiaries(data);
+        }).catch(e => {
+           document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; color:white;">❌ 搜尋失敗</div>';
+        });
+      }
+
+      function resetSearch() {
+        document.getElementById("searchKeyword").value = "";
+        document.getElementById("searchDate").value = "";
+        loadDiaries();
+      }
+
+      // 5. 渲染列表 (保留原有的排序與 UI 邏輯)
+      function renderDiaries(diaries) {
+        var container = document.getElementById("diaryContainer");
+        container.innerHTML = "";
+        
+        if (!diaries || diaries.length === 0) {
+          container.innerHTML = '<div style="text-align:center; color:rgba(255,255,255,0.7); padding:40px;">找不到相關日記 🐢</div>';
+          return;
+        }
+
+        var groupedDiaries = {};
+        diaries.forEach(function(d) {
+          if (!groupedDiaries[d.dateStr]) groupedDiaries[d.dateStr] = [];
+          groupedDiaries[d.dateStr].push(d);
+        });
+
+        var sortedDates = Object.keys(groupedDiaries).sort(function(a, b) {
+          return new Date(b) - new Date(a);
+        });
+
+        sortedDates.forEach(function(date) {
+          var dailyEntries = groupedDiaries[date];
+          dailyEntries.sort(function(a, b) { return a.time.localeCompare(b.time); });
+
+          var entriesHtml = dailyEntries.map(function(entry) {
+            var imgHtml = "";
+            if (entry.image && entry.image.trim() !== "" && entry.image.indexOf("drive.google.com") !== -1) {
+              var fileId = "";
+              var match = entry.image.match(/\/d\/([a-zA-Z0-9_-]+)/);
+              if (match) fileId = match[1];
+              else { match = entry.image.match(/id=([a-zA-Z0-9_-]+)/); if(match) fileId = match[1]; }
+              if (fileId) {
+                var thumbUrl = "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1200";
+                imgHtml = `<img src="${thumbUrl}" class="diary-img" loading="lazy" onerror="this.style.display='none'">`;
+              }
+            }
+
+            return `
+              <div class="diary-entry-item" style="border-bottom:1px dashed #eee; padding-bottom:20px; margin-bottom:20px; position:relative;">
+                <div style="position:absolute; top:0; right:0; display:flex; gap:8px;">
+                  <button onclick="openEditModal('${entry.id}')" style="background:none; border:none; cursor:pointer; font-size:1.2em; padding:5px; opacity:0.6;" title="編輯">✏️</button>
+                  <button onclick="deleteDiary('${entry.id}')" style="background:none; border:none; cursor:pointer; font-size:1.2em; padding:5px; opacity:0.6;" title="刪除">🗑️</button>
+                </div>
+                <div style="font-size:0.85em; color:#8898aa; margin-bottom:8px;">⏰ ${entry.time}</div>
+                <div id="content-${entry.id}" style="font-size:1.1em; line-height:1.7; color:#333; white-space: pre-wrap; margin-right:30px;">${entry.content}</div>
+                ${imgHtml}
+                <div id="tags-${entry.id}" style="color:#5e72e4; font-size:0.9em; margin-top:12px; font-weight:500;">${entry.tags}</div>
+              </div>`;
+          }).join("");
+
+          container.insertAdjacentHTML('beforeend', '<div class="diary-card"><div class="diary-date-header">📅 ' + date + '</div>' + entriesHtml + '</div>');
+        });
+      }
+
+      // 6. 編輯與刪除功能
+      function openEditModal(id) {
+        document.getElementById("editId").value = id;
+        document.getElementById("editContent").value = document.getElementById("content-" + id).innerText;
+        document.getElementById("editTags").value = document.getElementById("tags-" + id).innerText;
+        document.getElementById("editFile").value = "";
+        document.getElementById("editModal").style.display = "block";
+      }
+      
+      function closeEditModal() { document.getElementById("editModal").style.display = "none"; }
+
+      function saveEdit() {
+        var id = document.getElementById("editId").value;
+        var content = document.getElementById("editContent").value;
+        var tags = document.getElementById("editTags").value;
+        var file = document.getElementById("editFile").files[0];
+        
+        if(!confirm("確定要儲存修改嗎？")) return;
+        
+        var saveBtn = event.target; 
+        var originalText = saveBtn.innerText;
+        saveBtn.innerText = "上傳更新中..."; saveBtn.disabled = true;
+
+        function sendData(filePayload) {
+            apiCall('updateLog', { id: id, content: content, tags: tags, filePayload: filePayload })
+            .then(function(r) {
+              alert(r.message);
+              closeEditModal();
+              var k = document.getElementById("searchKeyword").value;
+              var d = document.getElementById("searchDate").value;
+              if (k || d) performSearch(); else loadDiaries();
+            })
+            .catch(function(e) { alert("❌ 更新失敗"); })
+            .finally(function() { saveBtn.innerText = originalText; saveBtn.disabled = false; });
+        }
+
+        if (file) {
+            var reader = new FileReader();
+            reader.onload = function(e) { sendData({ name: file.name, type: file.type, data: e.target.result }); };
+            reader.readAsDataURL(file);
+        } else { sendData(null); }
+      }
+
+      function deleteDiary(id) {
+        if(!confirm("⚠️ 確定要刪除這篇日記嗎？\n(注意：僅會刪除文字紀錄，雲端硬碟中的照片原檔保留)")) return;
+        document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; padding:40px; color:rgba(255,255,255,0.7);">正在刪除回憶...</div>';
+
+        apiCall('deleteLog', { id: id }).then(function(r) {
+            alert(r.message);
+            var k = document.getElementById("searchKeyword").value;
+            var d = document.getElementById("searchDate").value;
+            if (k || d) performSearch(); else loadDiaries();
+        }).catch(function(e) {
+            alert("❌ 刪除發生錯誤");
+            loadDiaries(); 
+        });
+      }
+    </script>
+  </body>
+</html>
