@@ -335,7 +335,9 @@
       }
 
       function deleteDiary(id) {
-        if(!confirm("⚠️ 確定要刪除這篇日記嗎？\n(注意：僅會刪除文字紀錄，雲端硬碟中的照片原檔保留)")) return;
+        // ✨ 修改了這裡的警告提示文字
+        if(!confirm("⚠️ 確定要刪除這篇日記嗎？\n(注意：雲端硬碟中的照片原檔也會一併被移至垃圾桶喔！)")) return;
+        
         document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; padding:40px; color:rgba(255,255,255,0.7);">正在刪除回憶...</div>';
 
         apiCall('deleteLog', { id: id }).then(function(r) {
