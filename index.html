@@ -40,6 +40,11 @@
       .diary-img { width: 100%; border-radius: 12px; margin-top: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
       .search-container { background: white; padding: 20px; border-radius: 16px; margin-bottom: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
       .diary-date-header { font-size: 1.3em; font-weight: 700; color: #5e72e4; border-bottom: 2px solid #f4f5f7; padding-bottom: 15px; margin-bottom: 20px; }
+      
+      /* 👇 新增：回今日浮動按鈕的樣式 */
+      #backToTopBtn { position: fixed; bottom: 90px; right: 20px; z-index: 999; background: white; color: #5e72e4; border: 2px solid #5e72e4; border-radius: 30px; padding: 10px 18px; font-size: 14px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.15); transition: all 0.3s ease; opacity: 0; pointer-events: none; transform: translateY(20px); display: flex; align-items: center; gap: 5px; }
+      #backToTopBtn.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
+      #backToTopBtn:active { transform: translateY(0) scale(0.95); }
     </style>
   </head>
   <body>
@@ -80,6 +85,11 @@
         <div id="loadMoreContainer" style="text-align: center; margin-top: 10px; margin-bottom: 30px; display: none;">
           <button id="loadMoreBtn" onclick="loadDiaries(true)" class="secondary-btn" style="width: auto; padding: 12px 40px; border-radius: 30px; background-color: #8898aa; font-size: 15px; box-shadow: none;">👇 載入更多回憶</button>
         </div>
+
+        <!-- 👇 新增：浮動快速回到上方按鈕 -->
+        <button id="backToTopBtn" onclick="scrollToTop()">
+          <span style="font-size: 16px;">⬆️</span> 回今日
+        </button>
       </div>
     </div>
 
@@ -404,6 +414,27 @@
         }).catch(function(e) {
             alert("❌ 刪除發生錯誤");
             loadDiaries(); 
+        });
+      }
+
+      // 👇 新增：監聽視窗捲動事件以顯示/隱藏「回今日」按鈕
+      window.addEventListener('scroll', function() {
+        var btn = document.getElementById('backToTopBtn');
+        if (!btn) return;
+        
+        // 當處於「看回憶」分頁且向下捲動超過 300px 時，套用顯示的動畫 Class
+        if (window.scrollY > 300) {
+          btn.classList.add('show');
+        } else {
+          btn.classList.remove('show');
+        }
+      });
+
+      // 👇 新增：平滑捲動到畫面最上方
+      function scrollToTop() {
+        window.scrollTo({
+          top: 0,
+          behavior: 'smooth'
         });
       }
     </script>
