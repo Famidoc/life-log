@@ -71,8 +71,14 @@
           <button onclick="performSearch()" class="primary-btn" style="padding:12px; font-size:16px; background: #5e72e4;">🔍 搜尋日記</button>
           <button onclick="resetSearch()" style="width:100%; margin-top:10px; background:none; border:none; color:#8898aa; cursor:pointer; font-size:14px;">↺ 清除搜尋 / 顯示最近</button>
         </div>
+        
         <div id="diaryContainer">
           <div style="text-align:center; padding: 40px; color:rgba(255,255,255,0.7);">正在喚醒回憶...</div>
+        </div>
+
+        <!-- 👇 新增：載入更多按鈕區塊 -->
+        <div id="loadMoreContainer" style="text-align: center; margin-top: 10px; margin-bottom: 30px; display: none;">
+          <button id="loadMoreBtn" onclick="loadDiaries(true)" class="secondary-btn" style="width: auto; padding: 12px 40px; border-radius: 30px; background-color: #8898aa; font-size: 15px; box-shadow: none;">👇 載入更多回憶</button>
         </div>
       </div>
     </div>
@@ -105,13 +111,17 @@
       // ⚠️ 關鍵設定：請填入您剛剛重新部署後取得的 Web App 網址！
       const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwaAPptJqC2a6yjgMas4VSr5D5YncKopX1h-n4joKtYnERwPvV6eCNOjYYKpErN_ao8/exec";
 
+      // --- 👇 新增：分頁全域變數 ---
+      let currentOffset = 0;
+      const LOAD_LIMIT = 20;
+
       // --- 核心：統一負責與後端通訊的 Fetch 函式 ---
       async function apiCall(actionName, payloadData = {}) {
         try {
           const response = await fetch(GAS_API_URL, {
             method: 'POST',
             headers: {
-              'Content-Type': 'text/plain;charset=utf-8', // 使用 text/plain 避免跨域預檢錯誤
+              'Content-Type': 'text/plain;charset=utf-8', 
             },
             body: JSON.stringify({
               action: actionName,
@@ -173,7 +183,6 @@
             files: processedFiles
           };
 
-          // ✨ 使用新的 apiCall 呼叫後端
           apiCall('saveDiaryV8', payload).then(function(response) {
               if(response.success === false) throw new Error(response.message);
               alert(response.message);
@@ -207,25 +216,63 @@
         });
       }
 
-      // 4. 讀取與搜尋
-      function loadDiaries() {
-        document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; padding:40px; color:rgba(255,255,255,0.7);">正在喚醒回憶...</div>';
-        apiCall('getRecentDiaries').then(r => {
-           const data = r.data || r; // 相容不同的回傳格式
-           renderDiaries(data);
+      // 4. 讀取與搜尋 (支援 Load More)
+      function loadDiaries(isLoadMore = false) {
+        const container = document.getElementById("diaryContainer");
+        const loadMoreBtn = document.getElementById("loadMoreBtn");
+        const loadMoreContainer = document.getElementById("loadMoreContainer");
+
+        if (!isLoadMore) {
+          currentOffset = 0; // 重置偏移量
+          container.innerHTML = '<div style="text-align:center; padding:40px; color:rgba(255,255,255,0.7);">正在喚醒回憶...</div>';
+          loadMoreContainer.style.display = "none";
+        } else {
+          loadMoreBtn.innerText = "載入中...";
+          loadMoreBtn.disabled = true;
+        }
+
+        // 帶入 offset 與 limit 參數
+        apiCall('getRecentDiaries', { offset: currentOffset, limit: LOAD_LIMIT }).then(r => {
+           const data = r.data || r; 
+           
+           if (!isLoadMore) container.innerHTML = ''; // 清除載入中文字
+
+           renderDiaries(data, isLoadMore);
+
+           // 更新位移量
+           currentOffset += data.length;
+
+           // 如果回傳的資料少於 Limit，代表沒有更多資料了，隱藏按鈕
+           if (data.length < LOAD_LIMIT) {
+             loadMoreContainer.style.display = "none";
+           } else {
+             loadMoreContainer.style.display = "block";
+             loadMoreBtn.innerText = "👇 載入更多回憶";
+             loadMoreBtn.disabled = false;
+           }
+
         }).catch(e => {
-           document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; color:white;">❌ 讀取失敗</div>';
+           if (!isLoadMore) {
+             container.innerHTML = '<div style="text-align:center; color:white;">❌ 讀取失敗</div>';
+           } else {
+             alert("❌ 載入更多資料失敗");
+             loadMoreBtn.innerText = "👇 載入更多回憶";
+             loadMoreBtn.disabled = false;
+           }
         });
       }
 
       function performSearch() {
         var keyword = document.getElementById("searchKeyword").value;
         var date = document.getElementById("searchDate").value;
+        
+        // 搜尋時隱藏 Load More 機制 (避免分頁與搜尋結果衝突)
+        document.getElementById("loadMoreContainer").style.display = "none";
         document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; padding:40px; color:rgba(255,255,255,0.7);">🔍 搜尋中...</div>';
         
         apiCall('searchLogs', { keyword: keyword, searchDate: date }).then(r => {
            const data = r.data || r;
-           renderDiaries(data);
+           renderDiaries(data, false); // 搜尋結果直接覆寫
         }).catch(e => {
            document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; color:white;">❌ 搜尋失敗</div>';
         });
@@ -234,16 +281,17 @@
       function resetSearch() {
         document.getElementById("searchKeyword").value = "";
         document.getElementById("searchDate").value = "";
-        loadDiaries();
+        loadDiaries(); // 這會觸發重新載入並重置 isLoadMore 機制
       }
 
-      // 5. 渲染列表 (保留原有的排序與 UI 邏輯)
-      function renderDiaries(diaries) {
+      // 5. 渲染列表 (修改為可附加 HTML)
+      function renderDiaries(diaries, isLoadMore = false) {
         var container = document.getElementById("diaryContainer");
-        container.innerHTML = "";
         
         if (!diaries || diaries.length === 0) {
-          container.innerHTML = '<div style="text-align:center; color:rgba(255,255,255,0.7); padding:40px;">找不到相關日記 🐢</div>';
+          if (!isLoadMore) {
+             container.innerHTML = '<div style="text-align:center; color:rgba(255,255,255,0.7); padding:40px;">找不到相關日記 🐢</div>';
+          }
           return;
         }
 
@@ -256,6 +304,8 @@
         var sortedDates = Object.keys(groupedDiaries).sort(function(a, b) {
           return new Date(b) - new Date(a);
         });
+
+        let newHtml = ""; // 先把 HTML 存在變數裡
 
         sortedDates.forEach(function(date) {
           var dailyEntries = groupedDiaries[date];
@@ -287,8 +337,15 @@
               </div>`;
           }).join("");
 
-          container.insertAdjacentHTML('beforeend', '<div class="diary-card"><div class="diary-date-header">📅 ' + date + '</div>' + entriesHtml + '</div>');
+          newHtml += '<div class="diary-card"><div class="diary-date-header">📅 ' + date + '</div>' + entriesHtml + '</div>';
         });
+
+        // 依據是否為載入更多，決定是覆寫還是附加
+        if (isLoadMore) {
+           container.insertAdjacentHTML('beforeend', newHtml);
+        } else {
+           container.innerHTML = newHtml;
+        }
       }
 
       // 6. 編輯與刪除功能
@@ -321,7 +378,7 @@
               closeEditModal();
               var k = document.getElementById("searchKeyword").value;
               var d = document.getElementById("searchDate").value;
-              if (k || d) performSearch(); else loadDiaries();
+              if (k || d) performSearch(); else loadDiaries(); // 儲存完重回第一頁最新狀態
             })
             .catch(function(e) { alert("❌ 更新失敗"); })
             .finally(function() { saveBtn.innerText = originalText; saveBtn.disabled = false; });
@@ -335,7 +392,6 @@
       }
 
       function deleteDiary(id) {
-        // ✨ 修改了這裡的警告提示文字
         if(!confirm("⚠️ 確定要刪除這篇日記嗎？\n(注意：雲端硬碟中的照片原檔也會一併被移至垃圾桶喔！)")) return;
         
         document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; padding:40px; color:rgba(255,255,255,0.7);">正在刪除回憶...</div>';
@@ -344,7 +400,7 @@
             alert(r.message);
             var k = document.getElementById("searchKeyword").value;
             var d = document.getElementById("searchDate").value;
-            if (k || d) performSearch(); else loadDiaries();
+            if (k || d) performSearch(); else loadDiaries(); // 刪除完重回第一頁最新狀態
         }).catch(function(e) {
             alert("❌ 刪除發生錯誤");
             loadDiaries(); 
