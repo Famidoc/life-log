@@ -51,12 +51,14 @@
       .diary-link:hover { color: #324cdd; }
 
       /* 👇 新增：圖片預覽與截圖貼上提示樣式 */
+      .file-input-field { width: 100%; padding: 10px 14px; margin-bottom: 6px; border: 2px dashed #d2d6da; border-radius: 10px; background: #f8f9fa; font-size: 15px; color: #555; box-sizing: border-box; cursor: pointer; display: block; transition: all 0.2s ease; }
+      .file-input-field:hover { border-color: #5e72e4; background: #f4f7fe; }
       .preview-container { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; margin-bottom: 20px; }
       .preview-item { position: relative; width: 85px; height: 85px; border-radius: 10px; overflow: hidden; border: 2px solid #e9ecef; background: #f8f9fa; box-shadow: 0 4px 10px rgba(0,0,0,0.06); animation: fadeIn 0.3s ease; }
       .preview-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
       .preview-remove-btn { position: absolute; top: 3px; right: 3px; background: rgba(0,0,0,0.65); color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; transition: background 0.2s, transform 0.1s; }
       .preview-remove-btn:hover { background: #f5365c; transform: scale(1.1); }
-      .paste-hint { font-size: 0.85em; color: #5e72e4; margin-top: -12px; margin-bottom: 15px; display: flex; align-items: center; gap: 4px; line-height: 1.4; }
+      .paste-hint { font-size: 0.88em; color: #5e72e4; margin-top: 6px; margin-bottom: 16px; display: flex; align-items: center; gap: 4px; line-height: 1.4; }
     </style>
   </head>
   <body>
@@ -70,9 +72,9 @@
           <textarea name="content" placeholder="寫下今天的快樂碎片..." required></textarea>
           <label>標籤</label>
           <input type="text" name="tags" placeholder="#心情 #靈感">
-          <label>照片 (可多選，或直接按 Ctrl+V 貼上截圖)</label>
-          <input type="file" id="writeFileInput" name="myFile" accept="image/*" multiple onchange="handleFileSelect(this)">
-          <div class="paste-hint">💡 提示：在頁面上按 <b>Ctrl + V</b> 可直接貼上剪貼簿截圖</div>
+          <label>照片 (可多選)</label>
+          <input type="file" id="writeFileInput" name="myFile" accept="image/*" multiple onchange="handleFileSelect(this)" class="file-input-field">
+          <div class="paste-hint">💡 提示：在頁面上直接按 <b>Ctrl + V</b> 亦可貼上剪貼簿截圖</div>
           <div id="writePreviewContainer" class="preview-container"></div>
           <hr style="margin: 25px 0; border: 0; border-top: 1px dashed #e9ecef;">
           <button type="submit" id="submitBtn" class="primary-btn">儲存日記</button>
@@ -122,8 +124,9 @@
         <input type="hidden" id="editId">
         <label>內容</label><textarea id="editContent" style="height:150px;"></textarea>
         <label>標籤</label><input type="text" id="editTags">
-        <label>更換/補上照片 (可選取或按 Ctrl+V 貼上)</label>
-        <input type="file" id="editFile" accept="image/*" style="padding:10px; margin-bottom:8px; border:1px solid #ddd; background:white;" onchange="handleEditFileSelect(this)">
+        <label>更換/補上照片 (選填)</label>
+        <input type="file" id="editFile" accept="image/*" class="file-input-field" onchange="handleEditFileSelect(this)">
+        <div class="paste-hint" style="margin-top: 4px; margin-bottom: 12px;">💡 提示：在彈窗開啟時亦可按 <b>Ctrl + V</b> 貼上截圖</div>
         <div id="editPreviewContainer" class="preview-container"></div>
         <div style="display:flex; gap:15px; margin-top:15px;">
           <button onclick="closeEditModal()" style="flex:1; padding:12px; border:1px solid #ddd; background:white; border-radius:10px; color:#555;">取消</button>
