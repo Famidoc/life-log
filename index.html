@@ -230,10 +230,10 @@
 
     <!-- 底部導覽列 -->
     <div class="nav-bar">
-      <div class="nav-item active" onclick="switchTab('write')">
+      <div class="nav-item active" onclick="switchTab('write', this)">
         <span class="nav-icon">✏️</span><span class="nav-text">寫日記</span>
       </div>
-      <div class="nav-item" onclick="switchTab('read')">
+      <div class="nav-item" onclick="switchTab('read', this)">
         <span class="nav-icon">📖</span><span class="nav-text">看回憶</span>
       </div>
     </div>
@@ -309,16 +309,24 @@
       }
 
       // --- 頁籤切換 ---
-      function switchTab(tabName) {
+      function switchTab(tabName, el) {
         var navItems = document.querySelectorAll('.nav-item');
         for (var i = 0; i < navItems.length; i++) navItems[i].classList.remove('active');
-        event.currentTarget.classList.add('active');
+        
+        if (el) {
+          el.classList.add('active');
+        } else if (tabName === 'write' && navItems[0]) {
+          navItems[0].classList.add('active');
+        } else if (tabName === 'read' && navItems[1]) {
+          navItems[1].classList.add('active');
+        }
         
         var pages = document.querySelectorAll('.page-content');
         for (var j = 0; j < pages.length; j++) pages[j].classList.remove('active');
-        document.getElementById('page-' + tabName).classList.add('active');
+        var targetPage = document.getElementById('page-' + tabName);
+        if (targetPage) targetPage.classList.add('active');
         
-        window.scrollTo(0,0);
+        window.scrollTo(0, 0);
         if (tabName === 'read') {
           loadDiaries(); 
           loadOnThisDay(); // 同步檢查那年今天
@@ -339,7 +347,7 @@
       function linkify(text) {
         if (!text) return "";
         const safeText = escapeHtml(text);
-        const urlRegex = /(https?://[^\s<>"'{}|\\^`\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef]+)/g;
+        const urlRegex = /(https?:\/\/[^\s<>"'{}|\\^`\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef]+)/g;
         return safeText.replace(urlRegex, function(url) {
           let cleanUrl = url;
           let trailingPunctuation = "";
@@ -627,7 +635,7 @@
           btn.disabled = false; 
           btn.innerText = "儲存日記"; 
           status.style.display = "none";
-          document.querySelectorAll('.nav-item')[1].click(); 
+          switchTab('read'); 
         } catch (err) {
           alert("❌ 錯誤：" + (err.message || "上傳失敗"));
           btn.disabled = false; 
@@ -646,7 +654,7 @@
         apiCall('importFromSyncFolder').then(function(r) {
            alert(r.message);
            btn.disabled = false; btn.innerText = "📂 匯入今日同步資料夾檔案"; status.style.display = "none";
-           document.querySelectorAll('.nav-item')[1].click();
+           switchTab('read');
         }).catch(function(e) {
            alert("❌ 匯入發生錯誤：" + e);
            btn.disabled = false; btn.innerText = "📂 匯入今日同步資料夾檔案"; status.style.display = "none";
