@@ -60,6 +60,14 @@
       .preview-remove-btn:hover { background: #f5365c; transform: scale(1.1); }
       .paste-hint { font-size: 0.85em; color: #5e72e4; margin-top: 6px; margin-bottom: 16px; line-height: 1.5; display: block; word-break: break-word; }
       kbd { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 4px; padding: 1px 6px; font-size: 0.9em; font-family: inherit; color: #4338ca; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+      
+      /* 編輯既有照片與管理樣式 */
+      .existing-photo-box { display: flex; align-items: center; gap: 12px; background: #f8f9fa; padding: 10px 14px; border-radius: 10px; border: 1px solid #e9ecef; margin-bottom: 15px; }
+      .existing-photo-thumb { width: 65px; height: 65px; border-radius: 8px; object-fit: cover; border: 1px solid #ddd; background: white; }
+      .photo-delete-btn { background: #fff5f5; color: #f5365c; border: 1px solid #febcbe; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+      .photo-delete-btn:hover { background: #f5365c; color: white; }
+      .photo-deleted-badge { color: #f5365c; font-weight: bold; font-size: 13px; }
+      .photo-count-badge { font-size: 0.88em; font-weight: 600; color: #5e72e4; margin-bottom: 8px; width: 100%; display: block; }
     </style>
   </head>
   <body>
@@ -125,8 +133,12 @@
         <input type="hidden" id="editId">
         <label>內容</label><textarea id="editContent" style="height:150px;"></textarea>
         <label>標籤</label><input type="text" id="editTags">
-        <label>更換/補上照片 (選填)</label>
-        <input type="file" id="editFile" accept="image/*" class="file-input-field" onchange="handleEditFileSelect(this)">
+        <div id="existingPhotoSection" style="margin-bottom: 15px; display: none;">
+          <label>目前附帶的照片</label>
+          <div id="existingPhotoContainer"></div>
+        </div>
+        <label>更換 / 補上照片 (可多選，支援貼上)</label>
+        <input type="file" id="editFile" accept="image/*" multiple class="file-input-field" onchange="handleEditFileSelect(this)">
         <div class="paste-hint" style="margin-top: 4px; margin-bottom: 12px;">💡 提示：電腦版亦可按 <kbd>Ctrl + V</kbd> 貼上截圖</div>
         <div id="editPreviewContainer" class="preview-container"></div>
         <div style="display:flex; gap:15px; margin-top:15px;">
@@ -144,8 +156,10 @@
       let currentOffset = 0;
       const LOAD_LIMIT = 20;
       let diaryCache = {}; // 快取日記資料，確保編輯時完整保留純文字換行
-      let writeFiles = []; // 待上傳照片清單（支援選擇檔案與剪貼簿貼上截圖）
-      let editFileItem = null; // 編輯彈窗目前選取/貼上的照片
+      let writeFiles = []; // 寫日記待上傳照片清單（支援連續貼上多張截圖與選擇檔案）
+      let editNewFiles = []; // 編輯日記待上傳新照片清單（支援連續貼上多張截圖與選擇檔案）
+      let editExistingImage = ""; // 編輯日記時記錄原有的圖片網址
+      let editRemoveExisting = false; // 是否標記刪除原有圖片
 
       // --- 核心：統一負責與後端通訊的 Fetch 函式 ---
       async function apiCall(actionName, payloadData = {}) {
@@ -286,14 +300,22 @@
         const container = document.getElementById("writePreviewContainer");
         if (!container) return;
         container.innerHTML = "";
+        
+        if (writeFiles.length > 0) {
+          const header = document.createElement("div");
+          header.className = "photo-count-badge";
+          header.innerText = `📷 已選取照片 (共 ${writeFiles.length} 張)：`;
+          container.appendChild(header);
+        }
+
         writeFiles.forEach((file, index) => {
           const item = document.createElement("div");
           item.className = "preview-item";
           
           const img = document.createElement("img");
-          const objectUrl = URL.createObjectURL(file);
-          img.src = objectUrl;
-          img.onload = () => URL.revokeObjectURL(objectUrl);
+          const reader = new FileReader();
+          reader.onload = function(e) { img.src = e.target.result; };
+          reader.readAsDataURL(file);
 
           const removeBtn = document.createElement("button");
           removeBtn.className = "preview-remove-btn";
@@ -322,45 +344,106 @@
         input.value = "";
       }
 
+      // --- 編輯日記既有照片管理 ---
+      function renderExistingPhotoBox() {
+        const section = document.getElementById("existingPhotoSection");
+        const container = document.getElementById("existingPhotoContainer");
+        if (!section || !container) return;
+
+        if (!editExistingImage || editExistingImage.trim() === "") {
+          section.style.display = "none";
+          container.innerHTML = "";
+          return;
+        }
+
+        section.style.display = "block";
+        let fileId = "";
+        const match = editExistingImage.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        if (match) fileId = match[1];
+        else { const m2 = editExistingImage.match(/id=([a-zA-Z0-9_-]+)/); if (m2) fileId = m2[1]; }
+        
+        const thumbUrl = fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w300` : "";
+
+        if (editRemoveExisting) {
+          container.innerHTML = `
+            <div class="existing-photo-box" style="background:#fff5f5; border-color:#febcbe;">
+              <div style="flex:1;">
+                <div class="photo-deleted-badge">⚠️ 已標記刪除此照片 (儲存後生效)</div>
+                <div style="font-size:12px; color:#888; margin-top:2px;">若不小心按到，可點擊右側復原</div>
+              </div>
+              <button type="button" onclick="cancelRemovePhoto()" class="secondary-btn" style="width:auto; margin:0; padding:6px 14px; font-size:13px; background:#8898aa; box-shadow:none;">↩️ 復原保留</button>
+            </div>`;
+        } else {
+          container.innerHTML = `
+            <div class="existing-photo-box">
+              <img src="${thumbUrl}" class="existing-photo-thumb" onerror="this.style.display='none'">
+              <div style="flex:1;">
+                <div style="font-size:13px; font-weight:500; color:#525f7f; margin-bottom:4px;">原日記所附照片</div>
+                <button type="button" onclick="markRemovePhoto()" class="photo-delete-btn">🗑️ 刪除這張照片</button>
+              </div>
+            </div>`;
+        }
+      }
+
+      function markRemovePhoto() {
+        editRemoveExisting = true;
+        renderExistingPhotoBox();
+      }
+
+      function cancelRemovePhoto() {
+        editRemoveExisting = false;
+        renderExistingPhotoBox();
+      }
+
       function renderEditPreview() {
         const container = document.getElementById("editPreviewContainer");
         if (!container) return;
         container.innerHTML = "";
-        if (!editFileItem) return;
-
-        const item = document.createElement("div");
-        item.className = "preview-item";
         
-        const img = document.createElement("img");
-        const objectUrl = URL.createObjectURL(editFileItem);
-        img.src = objectUrl;
-        img.onload = () => URL.revokeObjectURL(objectUrl);
+        if (editNewFiles.length > 0) {
+          const header = document.createElement("div");
+          header.className = "photo-count-badge";
+          header.innerText = `📷 即將加入的新照片 (${editNewFiles.length} 張)：`;
+          container.appendChild(header);
+        }
 
-        const removeBtn = document.createElement("button");
-        removeBtn.className = "preview-remove-btn";
-        removeBtn.type = "button";
-        removeBtn.innerHTML = "✕";
-        removeBtn.title = "移除照片";
-        removeBtn.onclick = function(e) {
-          e.stopPropagation();
-          editFileItem = null;
-          renderEditPreview();
-        };
+        editNewFiles.forEach((file, index) => {
+          const item = document.createElement("div");
+          item.className = "preview-item";
+          
+          const img = document.createElement("img");
+          const reader = new FileReader();
+          reader.onload = function(e) { img.src = e.target.result; };
+          reader.readAsDataURL(file);
 
-        item.appendChild(img);
-        item.appendChild(removeBtn);
-        container.appendChild(item);
+          const removeBtn = document.createElement("button");
+          removeBtn.className = "preview-remove-btn";
+          removeBtn.type = "button";
+          removeBtn.innerHTML = "✕";
+          removeBtn.title = "移除此照片";
+          removeBtn.onclick = function(e) {
+            e.stopPropagation();
+            editNewFiles.splice(index, 1);
+            renderEditPreview();
+          };
+
+          item.appendChild(img);
+          item.appendChild(removeBtn);
+          container.appendChild(item);
+        });
       }
 
       function handleEditFileSelect(input) {
-        if (input.files && input.files[0]) {
-          editFileItem = input.files[0];
+        if (input.files && input.files.length > 0) {
+          for (let i = 0; i < input.files.length; i++) {
+            editNewFiles.push(input.files[i]);
+          }
           renderEditPreview();
         }
         input.value = "";
       }
 
-      // 監聽剪貼簿貼上 (Ctrl+V) 截圖事件
+      // 監聽剪貼簿貼上 (Ctrl+V) 截圖事件 (支援連續多次貼上追加，不覆蓋)
       document.addEventListener('paste', function(e) {
         const clipboardData = e.clipboardData || window.clipboardData;
         if (!clipboardData || !clipboardData.items) return;
@@ -374,15 +457,16 @@
               hasImage = true;
               const now = new Date();
               const pad = (n) => String(n).padStart(2, '0');
-              const timeStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+              const randomSuffix = Math.floor(Math.random() * 1000);
+              const timeStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}_${randomSuffix}`;
               const file = new File([blob], `screenshot_${timeStr}.png`, { type: blob.type || 'image/png' });
 
               const editModal = document.getElementById("editModal");
               if (editModal && editModal.style.display === "block") {
-                editFileItem = file;
+                editNewFiles.push(file); // 編輯模式：追加多張截圖，不覆蓋
                 renderEditPreview();
               } else if (document.getElementById('page-write') && document.getElementById('page-write').classList.contains('active')) {
-                writeFiles.push(file);
+                writeFiles.push(file); // 寫日記模式：追加多張截圖，不覆蓋
                 renderWritePreviews();
               }
             }
@@ -567,14 +651,15 @@
 
           var entriesHtml = dailyEntries.map(function(entry) {
             var imgHtml = "";
-            if (entry.image && entry.image.trim() !== "" && entry.image.indexOf("drive.google.com") !== -1) {
-              var fileId = "";
-              var match = entry.image.match(/\/d\/([a-zA-Z0-9_-]+)/);
-              if (match) fileId = match[1];
-              else { match = entry.image.match(/id=([a-zA-Z0-9_-]+)/); if(match) fileId = match[1]; }
-              if (fileId) {
-                var thumbUrl = "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1200";
-                imgHtml = `<img src="${thumbUrl}" class="diary-img" loading="lazy" onerror="this.style.display='none'">`;
+            if (entry.image && entry.image.trim() !== "") {
+              // 支援解析並顯示多張照片 (包含逗號、換行或空格分隔的多張 Drive 連結)
+              var matches = entry.image.matchAll(/\/d\/([a-zA-Z0-9_-]+)|id=([a-zA-Z0-9_-]+)/g);
+              for (const m of matches) {
+                var fileId = m[1] || m[2];
+                if (fileId) {
+                  var thumbUrl = "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1200";
+                  imgHtml += `<img src="${thumbUrl}" class="diary-img" loading="lazy" onerror="this.style.display='none'">`;
+                }
               }
             }
 
@@ -609,20 +694,27 @@
         if (entry) {
           document.getElementById("editContent").value = entry.content || "";
           document.getElementById("editTags").value = entry.tags || "";
+          editExistingImage = entry.image || "";
         } else {
           var contentEl = document.getElementById("content-" + id);
           var tagsEl = document.getElementById("tags-" + id);
           document.getElementById("editContent").value = contentEl ? contentEl.innerText : "";
           document.getElementById("editTags").value = tagsEl ? tagsEl.innerText : "";
+          editExistingImage = "";
         }
         document.getElementById("editFile").value = "";
-        editFileItem = null;
+        editRemoveExisting = false;
+        editNewFiles = [];
+        renderExistingPhotoBox();
         renderEditPreview();
         document.getElementById("editModal").style.display = "block";
       }
       
       function closeEditModal() { 
-        editFileItem = null;
+        editNewFiles = [];
+        editRemoveExisting = false;
+        editExistingImage = "";
+        renderExistingPhotoBox();
         renderEditPreview();
         document.getElementById("editModal").style.display = "none"; 
       }
@@ -640,16 +732,23 @@
 
         try {
           let filePayload = null;
-          if (editFileItem) {
+          if (editNewFiles && editNewFiles.length > 0) {
             saveBtn.innerText = "最佳化照片中...";
-            filePayload = await compressImage(editFileItem);
+            filePayload = await compressImage(editNewFiles[0]);
           }
           
           saveBtn.innerText = "上傳更新中...";
-          const r = await apiCall('updateLog', { id: id, content: content, tags: tags, filePayload: filePayload });
+          const r = await apiCall('updateLog', { 
+            id: id, 
+            content: content, 
+            tags: tags, 
+            filePayload: filePayload,
+            deleteImage: editRemoveExisting && !filePayload
+          });
           alert(r.message || "更新成功！");
-          editFileItem = null;
-          renderEditPreview();
+          editNewFiles = [];
+          editRemoveExisting = false;
+          editExistingImage = "";
           closeEditModal();
           var k = document.getElementById("searchKeyword").value;
           var d = document.getElementById("searchDate").value;
