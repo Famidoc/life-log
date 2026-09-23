@@ -515,19 +515,30 @@ function updateLog(idOrData, newContent, newTags, filePayload) {
         sheet.getRange(i + 1, 4).setValue(content); // Content
         sheet.getRange(i + 1, 6).setValue(tags);    // Tags
 
-        const currentImageUrls = String(sheetData[i][4] || "").trim(); // 第 4 欄 (索引值) 是 Media_Links 照片網址
+        const currentImageUrls = String(sheetData[i][4] || "").trim(); // 第 4 欄是 Media_Links
 
-        // 2. 處理刪除舊圖 (若 deleteImage 為 true 且原本有圖片)
-        if (deleteImage && currentImageUrls) {
+        // 2. 處理刪除舊圖 (精準單張刪除 或 整篇清空)
+        if (data.deleteFileIds && Array.isArray(data.deleteFileIds) && data.deleteFileIds.length > 0) {
+          data.deleteFileIds.forEach(oldId => {
+            if (oldId) {
+              try {
+                DriveApp.getFileById(oldId).setTrashed(true);
+                console.log("✅ 成功將指定舊照片移至垃圾桶：" + oldId);
+              } catch (err) {
+                console.log("⚠️ 移動指定照片至垃圾桶失敗: " + err.message);
+              }
+            }
+          });
+        } else if (deleteImage && currentImageUrls) {
           const matches = currentImageUrls.matchAll(/\/d\/([a-zA-Z0-9_-]+)|id=([a-zA-Z0-9_-]+)/g);
           for (const m of matches) {
             const oldFileId = m[1] || m[2];
             if (oldFileId) {
               try {
                 DriveApp.getFileById(oldFileId).setTrashed(true);
-                console.log("✅ 成功將舊照片移至垃圾桶：" + oldFileId);
+                console.log("✅ 成功將全部舊照片移至垃圾桶：" + oldFileId);
               } catch (err) {
-                console.log("⚠️ 移動舊照片至垃圾桶失敗: " + err.message);
+                console.log("⚠️ 移動全部照片至垃圾桶失敗: " + err.message);
               }
             }
           }
@@ -543,25 +554,28 @@ function updateLog(idOrData, newContent, newTags, filePayload) {
               const dataParts = fData.data.split(',');
               const base64String = dataParts[1];
               const decodedBytes = Utilities.base64Decode(base64String);
-              const blob = Utilities.newBlob(decodedBytes, fData.type || 'image/jpeg', fData.name || `photo_${fIdx}.jpg`);
+              const blob = Utilities.newBlob(decodedBytes, fData.type || 'image/jpeg', fData.name || ('photo_' + fIdx + '.jpg'));
               const file = folder.createFile(blob);
-              file.setName(`${id}_update_${fIdx}_${file.getName()}`);
+              file.setName(id + '_update_' + fIdx + '_' + file.getName());
               newUploadedUrls.push(file.getUrl());
             }
           }
         }
 
-        // 4. 組合最終圖片網址
+        // 4. 組合最終圖片網址 (精準保留前端未刪除的舊圖)
         let finalUrls = [];
-        if (!deleteImage && currentImageUrls) {
-          finalUrls.push(currentImageUrls); // 保留原照片網址
+        if (data.keepImageUrls && Array.isArray(data.keepImageUrls)) {
+          finalUrls = finalUrls.concat(data.keepImageUrls);
+        } else if (!deleteImage && currentImageUrls) {
+          finalUrls.push(currentImageUrls);
         }
+
         if (newUploadedUrls.length > 0) {
           finalUrls = finalUrls.concat(newUploadedUrls);
         }
 
-        // 5. 若有新上傳或有執行刪除，則更新第 5 欄 (Media_Links)
-        if (newUploadedUrls.length > 0 || deleteImage) {
+        // 5. 若有新上傳或有刪除/調整照片，則更新第 5 欄 (Media_Links)
+        if (newUploadedUrls.length > 0 || deleteImage || data.keepImageUrls) {
           sheet.getRange(i + 1, 5).setValue(finalUrls.join("\n"));
         }
 

@@ -135,6 +135,23 @@
       /* --- ✨ 新增：匯出備份按鈕 --- */
       .export-btn { background: #f4f5f7; border: 1px solid #d2d6da; color: #525f7f; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 4px; }
       .export-btn:hover { background: #5e72e4; color: white; border-color: #5e72e4; }
+    
+      /* 搜尋框一鍵清除按鈕 */
+      .search-input-wrapper { position: relative; flex: 2; display: flex; align-items: center; }
+      .search-clear-btn { position: absolute; right: 10px; background: #e9ecef; color: #8898aa; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; font-weight: bold; cursor: pointer; display: none; align-items: center; justify-content: center; line-height: 1; transition: all 0.2s; }
+      .search-clear-btn:hover { background: #f5365c; color: white; }
+
+      /* 編輯既有照片單張刪除 */
+      .existing-photos-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+      .existing-photo-card { position: relative; width: 78px; height: 78px; border-radius: 10px; overflow: hidden; border: 2px solid #e9ecef; background: #f8f9fa; }
+      .existing-photo-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .existing-photo-close-btn { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.65); color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; z-index: 5; transition: background 0.2s, transform 0.1s; }
+      .existing-photo-close-btn:hover { background: #f5365c; transform: scale(1.1); }
+      .existing-photo-card.marked-delete { border-color: #f5365c; }
+      .existing-photo-card.marked-delete .existing-photo-overlay { display: flex; }
+      .existing-photo-overlay { display: none; position: absolute; inset: 0; background: rgba(245, 54, 92, 0.85); color: white; flex-direction: column; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; cursor: pointer; text-align: center; padding: 4px; z-index: 6; }
+      .existing-photo-hint { font-size: 0.85em; color: #8898aa; margin-top: 6px; }
+
     </style>
   </head>
   <body>
@@ -194,7 +211,10 @@
         <!-- 搜尋與備份工具列 -->
         <div class="search-container">
           <div style="display:flex; gap:10px; margin-bottom:12px;">
-            <input type="text" id="searchKeyword" placeholder="搜尋關鍵字或點擊標籤..." style="margin:0; flex:2;">
+            <div class="search-input-wrapper">
+              <input type="text" id="searchKeyword" placeholder="搜尋關鍵字或點擊標籤..." style="margin:0; width:100%; padding-right:36px;" oninput="onSearchKeywordInput()">
+              <button type="button" id="clearKeywordBtn" class="search-clear-btn" onclick="clearSearchKeyword()" title="清除關鍵字">✕</button>
+            </div>
             <input type="date" id="searchDate" style="margin:0; flex:1;">
           </div>
           <button onclick="performSearch()" class="primary-btn" style="padding:12px; font-size:16px; background: #5e72e4;">🔍 搜尋日記</button>
@@ -246,8 +266,9 @@
         <label>內容</label><textarea id="editContent" style="height:150px;"></textarea>
         <label>標籤</label><input type="text" id="editTags">
         <div id="existingPhotoSection" style="margin-bottom: 15px; display: none;">
-          <label>目前附帶的照片</label>
-          <div id="existingPhotoContainer"></div>
+          <label>目前附帶的照片 (點圖片右上角 ✕ 可特定刪除該張)</label>
+          <div id="existingPhotoContainer" class="existing-photos-grid"></div>
+          <div id="existingPhotoStatusHint" class="existing-photo-hint"></div>
         </div>
         <label>更換 / 補上照片 (可多選，支援貼上)</label>
         <input type="file" id="editFile" accept="image/*" multiple class="file-input-field" onchange="handleEditFileSelect(this)">
@@ -538,9 +559,36 @@
         tagsInput.focus();
       }
 
+      
+      // --- ✨ 搜尋框清除按鈕邏輯 ---
+      function onSearchKeywordInput() {
+        const val = document.getElementById("searchKeyword").value;
+        const btn = document.getElementById("clearKeywordBtn");
+        if (btn) btn.style.display = val.trim() ? "flex" : "none";
+      }
+
+      function clearSearchKeyword() {
+        document.getElementById("searchKeyword").value = "";
+        const clrBtn = document.getElementById("clearKeywordBtn"); if (clrBtn) clrBtn.style.display = "none";
+        const btn = document.getElementById("clearKeywordBtn");
+        if (btn) btn.style.display = "none";
+        
+        // 若日期也沒選，則自動還原為最新日記
+        const dateVal = document.getElementById("searchDate").value;
+        if (!dateVal) {
+          loadDiaries();
+        } else {
+          performSearch();
+        }
+      }
+
+      // 增強 filterByTag: 帶入標籤時同步顯示清除按鈕
+      const origFilterByTag = filterByTag;
+
       // --- ✨ 點擊日記標籤直接過濾搜尋 ---
       function filterByTag(tag) {
         document.getElementById("searchKeyword").value = tag;
+        const clrBtn = document.getElementById("clearKeywordBtn"); if (clrBtn) clrBtn.style.display = "flex";
         document.getElementById("searchDate").value = "";
         performSearch();
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -965,7 +1013,9 @@
         URL.revokeObjectURL(url);
       }
 
-      // --- 編輯彈窗與照片管理 ---
+      // --- ✨ 編輯彈窗：支援既有照片特定單張刪除 ---
+      let editExistingPhotosList = []; // [{ fullUrl, fileId, isDeleted: false }]
+
       function openEditModal(id) {
         document.getElementById("editId").value = id;
         const entry = diaryCache[id];
@@ -975,63 +1025,88 @@
           editExistingImage = entry.image || "";
         }
         document.getElementById("editFile").value = "";
-        editRemoveExisting = false;
         editNewFiles = [];
-        renderExistingPhotoBox();
+
+        // 解析現有照片為獨立物件清單
+        editExistingPhotosList = [];
+        if (editExistingImage && editExistingImage.trim() !== "") {
+          const rawUrls = editExistingImage.split(/[\r\n\s]+/).filter(u => u.trim().length > 0);
+          rawUrls.forEach(url => {
+            let fileId = "";
+            const m = url.match(/\/d\/([a-zA-Z0-9_-]+)|id=([a-zA-Z0-9_-]+)/);
+            if (m) fileId = m[1] || m[2];
+            if (fileId) {
+              editExistingPhotosList.push({
+                fullUrl: url,
+                fileId: fileId,
+                isDeleted: false
+              });
+            }
+          });
+        }
+
+        renderExistingPhotos();
         renderEditPreview();
         document.getElementById("editModal").style.display = "block";
       }
       
       function closeEditModal() { 
         editNewFiles = [];
-        editRemoveExisting = false;
+        editExistingPhotosList = [];
         editExistingImage = "";
-        renderExistingPhotoBox();
-        renderEditPreview();
         document.getElementById("editModal").style.display = "none"; 
       }
 
-      function renderExistingPhotoBox() {
+      function renderExistingPhotos() {
         const section = document.getElementById("existingPhotoSection");
         const container = document.getElementById("existingPhotoContainer");
-        if (!editExistingImage || editExistingImage.trim() === "") {
+        const hintEl = document.getElementById("existingPhotoStatusHint");
+
+        if (!editExistingPhotosList || editExistingPhotosList.length === 0) {
           section.style.display = "none";
           container.innerHTML = "";
+          hintEl.innerText = "";
           return;
         }
+
         section.style.display = "block";
-        const matches = [...editExistingImage.matchAll(/\/d\/([a-zA-Z0-9_-]+)|id=([a-zA-Z0-9_-]+)/g)];
-        let thumbsHtml = "";
-        matches.forEach(m => {
-          const fileId = m[1] || m[2];
-          if (fileId) {
-            thumbsHtml += `<img src="https://drive.google.com/thumbnail?id=${fileId}&sz=w200" class="existing-photo-thumb">`;
-          }
+        let html = "";
+        let deleteCount = 0;
+
+        editExistingPhotosList.forEach((photo, idx) => {
+          if (photo.isDeleted) deleteCount++;
+          const cardClass = photo.isDeleted ? "existing-photo-card marked-delete" : "existing-photo-card";
+          const thumbUrl = "https://drive.google.com/thumbnail?id=" + photo.fileId + "&sz=w200";
+
+          html += `
+            <div class="${cardClass}" onclick="toggleDeleteExistingPhoto(${idx})">
+              <img src="${thumbUrl}" alt="原照片">
+              <button type="button" class="existing-photo-close-btn" onclick="event.stopPropagation(); toggleDeleteExistingPhoto(${idx});" title="${photo.isDeleted ? '復原此照片' : '刪除此照片'}">
+                ${photo.isDeleted ? '↩' : '✕'}
+              </button>
+              <div class="existing-photo-overlay">
+                <span>🗑️ 待刪除</span>
+                <span style="font-size:10px; text-decoration:underline; margin-top:2px;">點此復原</span>
+              </div>
+            </div>`;
         });
 
-        if (!editRemoveExisting) {
-          container.innerHTML = `
-            <div class="existing-photo-box">
-              ${thumbsHtml}
-              <div style="flex:1;">
-                <div style="font-size:0.9em; color:#555; margin-bottom:6px;">目前包含 ${matches.length} 張原照片</div>
-                <button type="button" class="photo-delete-btn" onclick="markDeleteExisting(true)">🗑️ 刪除這張照片</button>
-              </div>
-            </div>`;
+        container.innerHTML = html;
+        const total = editExistingPhotosList.length;
+        if (deleteCount === 0) {
+          hintEl.innerText = `共 ${total} 張照片。點擊小圖右上角「✕」可特定標記刪除該張。`;
+          hintEl.style.color = "#8898aa";
         } else {
-          container.innerHTML = `
-            <div class="existing-photo-box" style="background:#fff5f5; border-color:#febcbe;">
-              <div style="flex:1;">
-                <span class="photo-deleted-badge">⚠️ 已標記刪除原照片 (存檔時將移至垃圾桶)</span>
-                <button type="button" style="background:none; border:none; color:#5e72e4; cursor:pointer; font-size:13px; text-decoration:underline; margin-left:10px;" onclick="markDeleteExisting(false)">復原保留</button>
-              </div>
-            </div>`;
+          hintEl.innerText = `已標記刪除 ${deleteCount} 張，保留 ${total - deleteCount} 張 (存檔時移至垃圾桶)。`;
+          hintEl.style.color = "#f5365c";
         }
       }
 
-      function markDeleteExisting(shouldDelete) {
-        editRemoveExisting = shouldDelete;
-        renderExistingPhotoBox();
+      function toggleDeleteExistingPhoto(idx) {
+        if (editExistingPhotosList[idx]) {
+          editExistingPhotosList[idx].isDeleted = !editExistingPhotosList[idx].isDeleted;
+          renderExistingPhotos();
+        }
       }
 
       function handleEditFileSelect(input) {
@@ -1096,14 +1171,19 @@
           }
           
           saveBtn.innerText = "上傳更新中...";
+          // 整理精準保留與刪除名單
+          const retainedUrls = editExistingPhotosList.filter(p => !p.isDeleted).map(p => p.fullUrl);
+          const removeFileIds = editExistingPhotosList.filter(p => p.isDeleted).map(p => p.fileId);
+
           const r = await apiCall('updateLog', { 
             id: id, 
             content: content, 
             tags: tags, 
             files: processedFiles,
             filePayload: processedFiles.length > 0 ? processedFiles[0] : null,
-            deleteImage: editRemoveExisting,
-            keepExistingImage: !editRemoveExisting
+            keepImageUrls: retainedUrls,
+            deleteFileIds: removeFileIds,
+            deleteImage: (retainedUrls.length === 0 && editExistingPhotosList.length > 0)
           });
           alert(r.message || "更新成功！");
           editNewFiles = [];
