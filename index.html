@@ -49,6 +49,14 @@
       /* 👇 新增：日記內文超連結樣式 */
       .diary-link { color: #5e72e4; text-decoration: underline; word-break: break-all; font-weight: 500; }
       .diary-link:hover { color: #324cdd; }
+
+      /* 👇 新增：圖片預覽與截圖貼上提示樣式 */
+      .preview-container { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; margin-bottom: 20px; }
+      .preview-item { position: relative; width: 85px; height: 85px; border-radius: 10px; overflow: hidden; border: 2px solid #e9ecef; background: #f8f9fa; box-shadow: 0 4px 10px rgba(0,0,0,0.06); animation: fadeIn 0.3s ease; }
+      .preview-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .preview-remove-btn { position: absolute; top: 3px; right: 3px; background: rgba(0,0,0,0.65); color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; transition: background 0.2s, transform 0.1s; }
+      .preview-remove-btn:hover { background: #f5365c; transform: scale(1.1); }
+      .paste-hint { font-size: 0.85em; color: #5e72e4; margin-top: -12px; margin-bottom: 15px; display: flex; align-items: center; gap: 4px; line-height: 1.4; }
     </style>
   </head>
   <body>
@@ -62,8 +70,10 @@
           <textarea name="content" placeholder="寫下今天的快樂碎片..." required></textarea>
           <label>標籤</label>
           <input type="text" name="tags" placeholder="#心情 #靈感">
-          <label>照片 (可多選)</label>
-          <input type="file" name="myFile" accept="image/*" multiple>
+          <label>照片 (可多選，或直接按 Ctrl+V 貼上截圖)</label>
+          <input type="file" id="writeFileInput" name="myFile" accept="image/*" multiple onchange="handleFileSelect(this)">
+          <div class="paste-hint">💡 提示：在頁面上按 <b>Ctrl + V</b> 可直接貼上剪貼簿截圖</div>
+          <div id="writePreviewContainer" class="preview-container"></div>
           <hr style="margin: 25px 0; border: 0; border-top: 1px dashed #e9ecef;">
           <button type="submit" id="submitBtn" class="primary-btn">儲存日記</button>
           <button type="button" id="importBtn" onclick="handleImport()" class="secondary-btn">📂 匯入今日同步資料夾檔案</button>
@@ -112,8 +122,9 @@
         <input type="hidden" id="editId">
         <label>內容</label><textarea id="editContent" style="height:150px;"></textarea>
         <label>標籤</label><input type="text" id="editTags">
-        <label>更換/補上照片 (選填)</label>
-        <input type="file" id="editFile" accept="image/*" style="padding:10px; margin-bottom:15px; border:1px solid #ddd; background:white;">
+        <label>更換/補上照片 (可選取或按 Ctrl+V 貼上)</label>
+        <input type="file" id="editFile" accept="image/*" style="padding:10px; margin-bottom:8px; border:1px solid #ddd; background:white;" onchange="handleEditFileSelect(this)">
+        <div id="editPreviewContainer" class="preview-container"></div>
         <div style="display:flex; gap:15px; margin-top:15px;">
           <button onclick="closeEditModal()" style="flex:1; padding:12px; border:1px solid #ddd; background:white; border-radius:10px; color:#555;">取消</button>
           <button onclick="saveEdit()" style="flex:1; padding:12px; background:#5e72e4; color:white; border:none; border-radius:10px; font-weight:bold;">儲存修改</button>
@@ -129,6 +140,8 @@
       let currentOffset = 0;
       const LOAD_LIMIT = 20;
       let diaryCache = {}; // 快取日記資料，確保編輯時完整保留純文字換行
+      let writeFiles = []; // 待上傳照片清單（支援選擇檔案與剪貼簿貼上截圖）
+      let editFileItem = null; // 編輯彈窗目前選取/貼上的照片
 
       // --- 核心：統一負責與後端通訊的 Fetch 函式 ---
       async function apiCall(actionName, payloadData = {}) {
@@ -264,6 +277,119 @@
         });
       }
 
+      // --- 圖片預覽、管理與剪貼簿貼上處理 ---
+      function renderWritePreviews() {
+        const container = document.getElementById("writePreviewContainer");
+        if (!container) return;
+        container.innerHTML = "";
+        writeFiles.forEach((file, index) => {
+          const item = document.createElement("div");
+          item.className = "preview-item";
+          
+          const img = document.createElement("img");
+          const objectUrl = URL.createObjectURL(file);
+          img.src = objectUrl;
+          img.onload = () => URL.revokeObjectURL(objectUrl);
+
+          const removeBtn = document.createElement("button");
+          removeBtn.className = "preview-remove-btn";
+          removeBtn.type = "button";
+          removeBtn.innerHTML = "✕";
+          removeBtn.title = "移除此照片";
+          removeBtn.onclick = function(e) {
+            e.stopPropagation();
+            writeFiles.splice(index, 1);
+            renderWritePreviews();
+          };
+
+          item.appendChild(img);
+          item.appendChild(removeBtn);
+          container.appendChild(item);
+        });
+      }
+
+      function handleFileSelect(input) {
+        if (input.files && input.files.length > 0) {
+          for (let i = 0; i < input.files.length; i++) {
+            writeFiles.push(input.files[i]);
+          }
+          renderWritePreviews();
+        }
+        input.value = "";
+      }
+
+      function renderEditPreview() {
+        const container = document.getElementById("editPreviewContainer");
+        if (!container) return;
+        container.innerHTML = "";
+        if (!editFileItem) return;
+
+        const item = document.createElement("div");
+        item.className = "preview-item";
+        
+        const img = document.createElement("img");
+        const objectUrl = URL.createObjectURL(editFileItem);
+        img.src = objectUrl;
+        img.onload = () => URL.revokeObjectURL(objectUrl);
+
+        const removeBtn = document.createElement("button");
+        removeBtn.className = "preview-remove-btn";
+        removeBtn.type = "button";
+        removeBtn.innerHTML = "✕";
+        removeBtn.title = "移除照片";
+        removeBtn.onclick = function(e) {
+          e.stopPropagation();
+          editFileItem = null;
+          renderEditPreview();
+        };
+
+        item.appendChild(img);
+        item.appendChild(removeBtn);
+        container.appendChild(item);
+      }
+
+      function handleEditFileSelect(input) {
+        if (input.files && input.files[0]) {
+          editFileItem = input.files[0];
+          renderEditPreview();
+        }
+        input.value = "";
+      }
+
+      // 監聽剪貼簿貼上 (Ctrl+V) 截圖事件
+      document.addEventListener('paste', function(e) {
+        const clipboardData = e.clipboardData || window.clipboardData;
+        if (!clipboardData || !clipboardData.items) return;
+
+        let hasImage = false;
+        for (let i = 0; i < clipboardData.items.length; i++) {
+          const item = clipboardData.items[i];
+          if (item.type.indexOf('image') !== -1) {
+            const blob = item.getAsFile();
+            if (blob) {
+              hasImage = true;
+              const now = new Date();
+              const pad = (n) => String(n).padStart(2, '0');
+              const timeStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+              const file = new File([blob], `screenshot_${timeStr}.png`, { type: blob.type || 'image/png' });
+
+              const editModal = document.getElementById("editModal");
+              if (editModal && editModal.style.display === "block") {
+                editFileItem = file;
+                renderEditPreview();
+              } else if (document.getElementById('page-write') && document.getElementById('page-write').classList.contains('active')) {
+                writeFiles.push(file);
+                renderWritePreviews();
+              }
+            }
+          }
+        }
+
+        if (hasImage) {
+          e.preventDefault();
+        }
+      });
+
       // 2. 寫日記提交 (支援非同步圖片壓縮與階段進度提示)
       async function handleFormSubmit(form) {
         event.preventDefault();
@@ -273,16 +399,14 @@
         btn.disabled = true; 
         status.style.display = "block";
 
-        var fileInput = form.myFile;
-        var files = fileInput.files;
         var processedFiles = [];
 
         try {
-          if (files && files.length > 0) {
-            for (let i = 0; i < files.length; i++) {
-              btn.innerText = `壓縮照片 (${i + 1}/${files.length})...`;
-              status.innerText = `正在最佳化第 ${i + 1}/${files.length} 張照片...`;
-              const compressed = await compressImage(files[i]);
+          if (writeFiles && writeFiles.length > 0) {
+            for (let i = 0; i < writeFiles.length; i++) {
+              btn.innerText = `壓縮照片 (${i + 1}/${writeFiles.length})...`;
+              status.innerText = `正在最佳化第 ${i + 1}/${writeFiles.length} 張照片...`;
+              const compressed = await compressImage(writeFiles[i]);
               if (compressed) {
                 processedFiles.push(compressed);
               }
@@ -304,6 +428,8 @@
           
           alert(response.message || "日記儲存成功！");
           document.getElementById("diaryForm").reset();
+          writeFiles = [];
+          renderWritePreviews();
           btn.disabled = false; 
           btn.innerText = "儲存日記"; 
           status.style.display = "none";
@@ -486,16 +612,21 @@
           document.getElementById("editTags").value = tagsEl ? tagsEl.innerText : "";
         }
         document.getElementById("editFile").value = "";
+        editFileItem = null;
+        renderEditPreview();
         document.getElementById("editModal").style.display = "block";
       }
       
-      function closeEditModal() { document.getElementById("editModal").style.display = "none"; }
+      function closeEditModal() { 
+        editFileItem = null;
+        renderEditPreview();
+        document.getElementById("editModal").style.display = "none"; 
+      }
 
       async function saveEdit() {
         var id = document.getElementById("editId").value;
         var content = document.getElementById("editContent").value;
         var tags = document.getElementById("editTags").value;
-        var file = document.getElementById("editFile").files[0];
         
         if(!confirm("確定要儲存修改嗎？")) return;
         
@@ -505,14 +636,16 @@
 
         try {
           let filePayload = null;
-          if (file) {
+          if (editFileItem) {
             saveBtn.innerText = "最佳化照片中...";
-            filePayload = await compressImage(file);
+            filePayload = await compressImage(editFileItem);
           }
           
           saveBtn.innerText = "上傳更新中...";
           const r = await apiCall('updateLog', { id: id, content: content, tags: tags, filePayload: filePayload });
           alert(r.message || "更新成功！");
+          editFileItem = null;
+          renderEditPreview();
           closeEditModal();
           var k = document.getElementById("searchKeyword").value;
           var d = document.getElementById("searchDate").value;
