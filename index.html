@@ -731,10 +731,13 @@
         saveBtn.disabled = true;
 
         try {
-          let filePayload = null;
+          var processedFiles = [];
           if (editNewFiles && editNewFiles.length > 0) {
-            saveBtn.innerText = "最佳化照片中...";
-            filePayload = await compressImage(editNewFiles[0]);
+            for (let i = 0; i < editNewFiles.length; i++) {
+              saveBtn.innerText = `壓縮照片 (${i + 1}/${editNewFiles.length})...`;
+              const compressed = await compressImage(editNewFiles[i]);
+              if (compressed) processedFiles.push(compressed);
+            }
           }
           
           saveBtn.innerText = "上傳更新中...";
@@ -742,8 +745,10 @@
             id: id, 
             content: content, 
             tags: tags, 
-            filePayload: filePayload,
-            deleteImage: editRemoveExisting && !filePayload
+            files: processedFiles, // 支援多張新照片
+            filePayload: processedFiles.length > 0 ? processedFiles[0] : null, // 相容舊版單張
+            deleteImage: editRemoveExisting, // 是否刪除原照片
+            keepExistingImage: !editRemoveExisting // 是否保留原照片
           });
           alert(r.message || "更新成功！");
           editNewFiles = [];
