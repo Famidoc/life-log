@@ -61,6 +61,10 @@ function doPost(e) {
     case 'importFromSyncFolder':
       result = importFromSyncFolder();
       break;
+
+    case 'getOnThisDay':
+      result = { success: true, data: getOnThisDay() };
+      break;
       
     default:
       result = { success: false, message: "找不到對應的 API 動作：" + payload.action };
@@ -92,64 +96,150 @@ function saveDiaryV8(payload) {
     }
     const dateStr = Utilities.formatDate(targetDate, Session.getScriptTimeZone(), "yyyy/MM/dd");
     const timeStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "HH:mm"); 
-    const content = payload.content;
-    const tags = payload.tags;
+    const content = payload.content || "";
+    const tags = payload.tags || "";
 
-    // --- 2. 處理檔案 (Base64 解碼) ---
+    // --- 2. 處理檔案上傳 (支援多圖，合入同一筆日記) ---
     const files = payload.files || [];
     let uploadedCount = 0;
+    let uploadedUrls = [];
+    const id = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd-HHmmss");
 
-    // 情況 A：沒照片 -> 寫純文字
-    if (files.length === 0) {
-       const id = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd-HHmmss");
-       sheet.appendRow([id, dateStr, timeStr, content, "", tags, "", ""]);
-       _formatLastRow(sheet);
-       return { success: true, message: "已儲存純文字日記" };
-    } 
-    // 情況 B：有多張照片 -> 逐一解碼上傳
-    else {
+    if (files.length > 0 && folderId) {
+      const folder = DriveApp.getFolderById(folderId);
       files.forEach((fileData, index) => {
         try {
-          const id = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd-HHmmss") + "-" + index;
-          let fileUrl = "";
-
-          if (folderId && fileData.data) {
-             const folder = DriveApp.getFolderById(folderId);
-             
-             // 🔥 關鍵動作：將 Base64 轉回 Blob
-             // data:image/jpeg;base64,......
-             const dataParts = fileData.data.split(','); // 切開檔頭
-             const base64String = dataParts[1]; // 取內容
-             
-             // 解碼
-             const decodedBytes = Utilities.base64Decode(base64String);
-             const blob = Utilities.newBlob(decodedBytes, fileData.type, fileData.name);
-             
-             // 存檔
-             const file = folder.createFile(blob); 
-             file.setName(`${id}_${file.getName()}`); 
-             fileUrl = file.getUrl(); 
-             uploadedCount++;
+          if (fileData && fileData.data) {
+            const dataParts = fileData.data.split(',');
+            const base64String = dataParts[1];
+            const decodedBytes = Utilities.base64Decode(base64String);
+            const blob = Utilities.newBlob(decodedBytes, fileData.type || 'image/jpeg', fileData.name || ('photo_' + index + '.jpg'));
+            const file = folder.createFile(blob);
+            file.setName(id + '_' + index + '_' + file.getName());
+            uploadedUrls.push(file.getUrl());
+            uploadedCount++;
           }
-
-          sheet.appendRow([id, dateStr, timeStr, content, fileUrl, tags, "", ""]);
-          _formatLastRow(sheet);
-
         } catch (e) {
-          debugLog.push(`檔案 ${index+1} 上傳失敗: ${e.message}`);
+          debugLog.push('檔案 ' + (index + 1) + ' 上傳失敗: ' + e.message);
         }
       });
     }
 
-    // --- 3. 回報 ---
-    if (uploadedCount > 0) {
-       return { success: true, message: `✅ 完美！成功儲存 ${uploadedCount} 張照片。` };
-    } else {
-       return { success: false, message: `⚠️ 失敗：\n${debugLog.join("\n")}` };
+    // --- 3. 生成 AI 溫暖生活評語 (Gemini 2.5 Flash) ---
+    let aiSummary = "";
+    try {
+      aiSummary = generateAISummary(content);
+    } catch (aiErr) {
+      console.log("AI Summary 生成略過: " + aiErr.message);
     }
+
+    // 寫入試算表 (第 5 欄多圖網址以換行分隔，第 7 欄為 AI 評語)
+    const mediaLinks = uploadedUrls.join("\n");
+    sheet.appendRow([id, dateStr, timeStr, content, mediaLinks, tags, aiSummary, ""]);
+    _formatLastRow(sheet);
+
+    let msg = "已儲存日記！";
+    if (uploadedCount > 0) {
+      msg = "✅ 完美！成功儲存日記與 " + uploadedCount + " 張照片。";
+    }
+    if (aiSummary) {
+      msg += "\n🤖 AI 筆記：「" + aiSummary + "」";
+    }
+
+    return { 
+      success: true, 
+      message: msg,
+      data: { id: id, ai_summary: aiSummary }
+    };
     
   } catch (error) {
     return { success: false, message: "❌ 系統錯誤：" + error.message };
+  }
+}
+
+/**
+ * 取得 Gemini API Key (優先讀取 ScriptProperties)
+ */
+function getGeminiApiKey() {
+  const props = PropertiesService.getScriptProperties();
+  return props.getProperty("GEMINI_API_KEY") || "";
+}
+
+/**
+ * 呼叫 Gemini 2.5 Flash 產生生活日記評語
+ */
+function generateAISummary(content) {
+  if (!content || content.trim().length < 5) return "";
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) return "";
+
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey;
+  const prompt = "你是寫日記使用者的貼心好友與生活陪伴者。請閱讀以下使用者的日記內容，用繁體中文寫出一句 15~35 字、溫暖有同理心、富有生活哲思或鼓勵意味的簡短生活評語（請勿加上任何前綴、引號或括號，直接輸出這句話）：\n\n" + content;
+
+  const payload = {
+    contents: [{
+      parts: [{ text: prompt }]
+    }],
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 80
+    }
+  };
+
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(url, options);
+    if (response.getResponseCode() === 200) {
+      const json = JSON.parse(response.getContentText());
+      if (json.candidates && json.candidates.length > 0 && json.candidates[0].content && json.candidates[0].content.parts.length > 0) {
+        return json.candidates[0].content.parts[0].text.trim().replace(/^[\"「『]|[\"」』]$/g, "");
+      }
+    }
+  } catch (e) {
+    console.log("Gemini API 呼叫失敗: " + e.message);
+  }
+  return "";
+}
+
+/**
+ * 取得「那年今天」歷史日記 (同月同日，且年份小於今年)
+ */
+function getOnThisDay() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("Logs");
+    if (!sheet) return [];
+    const data = sheet.getDataRange().getValues();
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+    const currentDate = today.getDate();
+
+    const matches = [];
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (!row[1] || row[0] === "ID") continue;
+      const logDate = new Date(row[1]);
+      if (isNaN(logDate.getTime())) continue;
+
+      if (logDate.getMonth() === currentMonth && 
+          logDate.getDate() === currentDate && 
+          logDate.getFullYear() < currentYear) {
+        matches.push(formatRowData(row));
+      }
+    }
+
+    matches.sort((a, b) => new Date(b.dateStr) - new Date(a.dateStr));
+    return matches;
+  } catch (e) {
+    console.log("getOnThisDay 錯誤: " + e.message);
+    return [];
   }
 }
 
