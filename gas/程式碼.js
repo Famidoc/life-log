@@ -65,6 +65,18 @@ function doPost(e) {
     case 'getOnThisDay':
       result = { success: true, data: getOnThisDay() };
       break;
+
+    case 'jumpToDate':
+      result = jumpToDate(payload.data);
+      break;
+
+    case 'getOlderDiaries':
+      result = getOlderDiaries(payload.data.minRow, payload.data.limit);
+      break;
+
+    case 'getNewerDiaries':
+      result = getNewerDiaries(payload.data.maxRow, payload.data.limit);
+      break;
       
     default:
       result = { success: false, message: "找不到對應的 API 動作：" + payload.action };
@@ -477,6 +489,216 @@ function searchLogs(keyword, searchDate) {
 
   // 格式化回傳資料 (跟 getRecentDiaries 一樣的格式)
   return results.reverse().map(row => formatRowData(row));
+}
+
+/**
+ * ✨ 跳轉至指定日期並載入前後鄰接日記 (前後漫遊核心)
+ * @param {Object} data - { targetDate: "YYYY-MM-DD" 或 "YYYY/MM/DD", radius: 12 }
+ */
+function jumpToDate(data) {
+  try {
+    const rawTarget = (data && data.targetDate) ? String(data.targetDate).trim() : "";
+    if (!rawTarget) {
+      return { success: false, message: "請提供欲跳轉的日期" };
+    }
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("Logs");
+    if (!sheet) return { success: false, message: "找不到 Logs 工作表" };
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) {
+      return { success: true, data: [], message: "目前尚無日記" };
+    }
+
+    const radius = (data && data.radius) ? parseInt(data.radius, 10) : 12;
+
+    // 正規化目標日期為 yyyy/MM/dd
+    const targetNormalized = rawTarget.replace(/-/g, "/");
+    const targetDateObj = new Date(targetNormalized);
+    if (isNaN(targetDateObj.getTime())) {
+      return { success: false, message: "日期格式不正確" };
+    }
+    const targetYMD = Utilities.formatDate(targetDateObj, Session.getScriptTimeZone(), "yyyy/MM/dd");
+
+    // 讀取所有日期與ID資料 (第 1, 2 欄，從第 2 列到 lastRow)
+    const values = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+
+    const rowList = [];
+    const uniqueDatesSet = new Set();
+
+    for (let i = 0; i < values.length; i++) {
+      const idVal = values[i][0];
+      const cellVal = values[i][1];
+      if (!cellVal || idVal === "ID") continue;
+
+      let dObj = null;
+      let dStr = "";
+      try {
+        if (cellVal instanceof Date) {
+          dObj = cellVal;
+        } else {
+          dObj = new Date(String(cellVal).replace(/-/g, "/"));
+        }
+
+        if (dObj && !isNaN(dObj.getTime())) {
+          dStr = Utilities.formatDate(dObj, Session.getScriptTimeZone(), "yyyy/MM/dd");
+          const rowNum = i + 2;
+          rowList.push({ rowNumber: rowNum, dateStr: dStr, timestamp: dObj.getTime() });
+          uniqueDatesSet.add(dStr);
+        }
+      } catch (err) {}
+    }
+
+    if (rowList.length === 0) {
+      return { success: true, data: [], message: "尚無有效日期資料" };
+    }
+
+    // 所有不重複日期陣列，按時間升序排序
+    const sortedUniqueDates = Array.from(uniqueDatesSet).sort((a, b) => new Date(a) - new Date(b));
+
+    // 計算上一篇日記日期 prevDate 與下一篇日記日期 nextDate
+    let prevDate = null;
+    let nextDate = null;
+    for (let i = 0; i < sortedUniqueDates.length; i++) {
+      if (sortedUniqueDates[i] < targetYMD) {
+        prevDate = sortedUniqueDates[i];
+      }
+      if (sortedUniqueDates[i] > targetYMD && nextDate === null) {
+        nextDate = sortedUniqueDates[i];
+      }
+    }
+
+    // 找出匹配或最接近 targetYMD 的 row
+    let targetIndices = [];
+    for (let i = 0; i < rowList.length; i++) {
+      if (rowList[i].dateStr === targetYMD) {
+        targetIndices.push(i);
+      }
+    }
+
+    let exactMatch = targetIndices.length > 0;
+    let centerIndex = -1;
+
+    if (exactMatch) {
+      centerIndex = targetIndices[Math.floor(targetIndices.length / 2)];
+    } else {
+      const targetTime = targetDateObj.getTime();
+      let minDiff = Infinity;
+      for (let i = 0; i < rowList.length; i++) {
+        const diff = Math.abs(rowList[i].timestamp - targetTime);
+        if (diff < minDiff) {
+          minDiff = diff;
+          centerIndex = i;
+        }
+      }
+    }
+
+    // 計算以 centerIndex 為中心，前後各取 radius 筆的範圍
+    const startIndex = Math.max(0, centerIndex - radius);
+    const endIndex = Math.min(rowList.length - 1, centerIndex + radius);
+
+    const startRowNum = rowList[startIndex].rowNumber;
+    const endRowNum = rowList[endIndex].rowNumber;
+    const numRows = endRowNum - startRowNum + 1;
+
+    const rawRows = sheet.getRange(startRowNum, 1, numRows, 8).getValues();
+
+    // 轉為前端日記物件，並由新到舊倒序排列
+    const diaries = [];
+    for (let r = rawRows.length - 1; r >= 0; r--) {
+      diaries.push(formatRowData(rawRows[r]));
+    }
+
+    const hasOlder = startRowNum > 2;
+    const hasNewer = endRowNum < lastRow;
+
+    return {
+      success: true,
+      data: diaries,
+      targetDate: targetYMD,
+      exactMatch: exactMatch,
+      prevDate: prevDate,
+      nextDate: nextDate,
+      minRow: startRowNum,
+      maxRow: endRowNum,
+      hasOlder: hasOlder,
+      hasNewer: hasNewer
+    };
+  } catch (err) {
+    return { success: false, message: "跳轉日期失敗: " + err.message };
+  }
+}
+
+/**
+ * 載入更早的日記 (從 minRow 往前抓)
+ */
+function getOlderDiaries(minRow, limit) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("Logs");
+    if (!sheet) return { success: false, data: [] };
+
+    const fetchLimit = limit ? parseInt(limit, 10) : 15;
+    const targetEndRow = parseInt(minRow, 10) - 1;
+    if (targetEndRow < 2) {
+      return { success: true, data: [], hasOlder: false, minRow: 2 };
+    }
+
+    const startRow = Math.max(2, targetEndRow - fetchLimit + 1);
+    const numRows = targetEndRow - startRow + 1;
+
+    const rawRows = sheet.getRange(startRow, 1, numRows, 8).getValues();
+    const diaries = [];
+    for (let r = rawRows.length - 1; r >= 0; r--) {
+      diaries.push(formatRowData(rawRows[r]));
+    }
+
+    return {
+      success: true,
+      data: diaries,
+      minRow: startRow,
+      hasOlder: startRow > 2
+    };
+  } catch (err) {
+    return { success: false, message: "載入更早回憶失敗: " + err.message };
+  }
+}
+
+/**
+ * 載入更新的日記 (從 maxRow 往後抓)
+ */
+function getNewerDiaries(maxRow, limit) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("Logs");
+    if (!sheet) return { success: false, data: [] };
+
+    const fetchLimit = limit ? parseInt(limit, 10) : 15;
+    const lastRow = sheet.getLastRow();
+    const targetStartRow = parseInt(maxRow, 10) + 1;
+    if (targetStartRow > lastRow) {
+      return { success: true, data: [], hasNewer: false, maxRow: lastRow };
+    }
+
+    const endRow = Math.min(lastRow, targetStartRow + fetchLimit - 1);
+    const numRows = endRow - targetStartRow + 1;
+
+    const rawRows = sheet.getRange(targetStartRow, 1, numRows, 8).getValues();
+    const diaries = [];
+    for (let r = rawRows.length - 1; r >= 0; r--) {
+      diaries.push(formatRowData(rawRows[r]));
+    }
+
+    return {
+      success: true,
+      data: diaries,
+      maxRow: endRow,
+      hasNewer: endRow < lastRow
+    };
+  } catch (err) {
+    return { success: false, message: "載入更新回憶失敗: " + err.message };
+  }
 }
 
 /**

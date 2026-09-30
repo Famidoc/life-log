@@ -152,6 +152,36 @@
       .existing-photo-overlay { display: none; position: absolute; inset: 0; background: rgba(245, 54, 92, 0.85); color: white; flex-direction: column; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; cursor: pointer; text-align: center; padding: 4px; z-index: 6; }
       .existing-photo-hint { font-size: 0.85em; color: #8898aa; margin-top: 6px; }
 
+      /* --- ✨ 新增：日期跳轉與前後漫遊導覽列 --- */
+      .roaming-bar { display: none; background: white; border-radius: 14px; padding: 12px 16px; margin-bottom: 20px; align-items: center; justify-content: space-between; box-shadow: 0 6px 20px rgba(0,0,0,0.1); border: 2px solid #eef2ff; animation: fadeIn 0.3s ease; }
+      .roaming-bar.active { display: flex; }
+      .roam-nav-btn { background: #f4f5f7; border: 1px solid #d2d6da; color: #525f7f; border-radius: 20px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.2s; }
+      .roam-nav-btn:hover:not(:disabled) { background: #5e72e4; color: white; border-color: #5e72e4; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(94, 114, 228, 0.25); }
+      .roam-nav-btn:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+      .roam-center-info { display: flex; flex-direction: column; align-items: center; text-align: center; }
+      .roam-current-date { font-weight: 700; color: #5e72e4; font-size: 1.1em; display: flex; align-items: center; gap: 6px; }
+      .roam-status-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+      .roam-status-badge.exact { background: #eef2ff; color: #5e72e4; }
+      .roam-status-badge.approx { background: #fff8e1; color: #b78103; border: 1px solid #ffe082; }
+      .roam-sub-hint { font-size: 0.8em; color: #8898aa; margin-top: 2px; }
+
+      /* 目標日期卡片高亮樣式 */
+      .diary-card.target-highlight { border: 2.5px solid #5e72e4; box-shadow: 0 10px 30px rgba(94, 114, 228, 0.28); position: relative; animation: targetPulse 1.2s ease-out; }
+      @keyframes targetPulse { 0% { transform: scale(1.02); } 100% { transform: scale(1); } }
+      .target-date-indicator { display: inline-flex; align-items: center; gap: 4px; background: linear-gradient(135deg, #5e72e4 0%, #825ee4 100%); color: white; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 12px; margin-left: 8px; vertical-align: middle; }
+      
+      /* 日期標題列排版與按鈕 */
+      .diary-date-header { display: flex; align-items: center; justify-content: space-between; font-size: 1.25em; font-weight: 700; color: #5e72e4; border-bottom: 2px solid #f4f5f7; padding-bottom: 12px; margin-bottom: 20px; flex-wrap: wrap; gap: 8px; }
+      .date-quick-jump-btn { background: #f4f7fe; color: #5e72e4; border: 1px solid #d2d6da; border-radius: 16px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+      .date-quick-jump-btn:hover { background: #5e72e4; color: white; border-color: #5e72e4; }
+
+      /* 搜尋區雙按鈕列 */
+      .search-btn-group { display: flex; gap: 10px; margin-top: 10px; }
+      .jump-btn { flex: 1.3; background: linear-gradient(135deg, #5e72e4 0%, #825ee4 100%); color: white; border: none; border-radius: 10px; padding: 12px; font-size: 15px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 12px rgba(94, 114, 228, 0.25); display: flex; align-items: center; justify-content: center; gap: 6px; }
+      .jump-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(94, 114, 228, 0.35); }
+      .search-secondary-btn { flex: 1; background: #f4f5f7; color: #525f7f; border: 1px solid #d2d6da; border-radius: 10px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 4px; }
+      .search-secondary-btn:hover { background: #e9ecef; color: #324cdd; }
+
     </style>
   </head>
   <body>
@@ -215,9 +245,14 @@
               <input type="text" id="searchKeyword" placeholder="搜尋關鍵字或點擊標籤..." style="margin:0; width:100%; padding-right:36px;" oninput="onSearchKeywordInput()">
               <button type="button" id="clearKeywordBtn" class="search-clear-btn" onclick="clearSearchKeyword()" title="清除關鍵字">✕</button>
             </div>
-            <input type="date" id="searchDate" style="margin:0; flex:1;">
+            <input type="date" id="searchDate" style="margin:0; flex:1;" title="選擇指定日期">
           </div>
-          <button onclick="performSearch()" class="primary-btn" style="padding:12px; font-size:16px; background: #5e72e4;">🔍 搜尋日記</button>
+          
+          <!-- 功能按鈕群：直接跳轉漫遊 vs 關鍵字搜尋 -->
+          <div class="search-btn-group">
+            <button type="button" onclick="performJumpToDate()" class="jump-btn" title="直接前往指定日期，並可上下漫遊前後日記">🚀 跳轉此日 (前後漫遊)</button>
+            <button type="button" onclick="performSearch()" class="search-secondary-btn" title="搜尋關鍵字或精準單日篩選">🔍 搜尋</button>
+          </div>
           
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; flex-wrap:wrap; gap:8px;">
             <button onclick="resetSearch()" style="background:none; border:none; color:#8898aa; cursor:pointer; font-size:14px; padding:0;">↺ 清除過濾 / 顯示最新</button>
@@ -226,6 +261,29 @@
               <button type="button" onclick="exportDiaries('json')" class="export-btn" title="匯出完整 JSON 結構檔">📥 匯出 JSON</button>
             </div>
           </div>
+        </div>
+
+        <!-- ✨ 日期前後漫遊導覽列 -->
+        <div id="roamingBar" class="roaming-bar">
+          <button type="button" id="roamPrevBtn" class="roam-nav-btn" onclick="roamNavigate('prev')" title="看上一篇日記">
+            ◀ <span id="roamPrevText">上一天</span>
+          </button>
+          <div class="roam-center-info">
+            <div class="roam-current-date">
+              <span>📅</span>
+              <span id="roamCurrentDateText">--</span>
+              <span id="roamStatusBadge" class="roam-status-badge exact">目標日</span>
+            </div>
+            <div id="roamSubHint" class="roam-sub-hint">可向上向下捲動載入前後日記</div>
+          </div>
+          <button type="button" id="roamNextBtn" class="roam-nav-btn" onclick="roamNavigate('next')" title="看下一篇日記">
+            <span id="roamNextText">下一天</span> ▶
+          </button>
+        </div>
+
+        <!-- 載入更新按鈕 (漫遊模式上方) -->
+        <div id="loadNewerContainer" style="text-align: center; margin-top: 10px; margin-bottom: 20px; display: none;">
+          <button id="loadNewerBtn" onclick="loadNewerDiaries()" class="secondary-btn" style="width: auto; padding: 10px 32px; border-radius: 30px; background-color: #5e72e4; font-size: 14px; box-shadow: none;">⬆️ 載入更新的回憶</button>
         </div>
 
         <!-- 「那年今天」時光機展示區 -->
@@ -305,6 +363,16 @@
       let editNewFiles = []; // 編輯待上傳照片清單
       let editExistingImage = ""; 
       let editRemoveExisting = false; 
+
+      // ✨ 日期跳轉與前後漫遊狀態
+      let isRoamingMode = false;
+      let roamCurrentTarget = "";
+      let roamPrevDate = null;
+      let roamNextDate = null;
+      let roamMinRow = 2;
+      let roamMaxRow = 2;
+      let roamHasOlder = false;
+      let roamHasNewer = false;
 
       // 燈箱狀態
       let currentLightboxImages = [];
@@ -742,6 +810,18 @@
 
       // --- 讀取與搜尋日記 ---
       function loadDiaries(isLoadMore = false) {
+        if (isRoamingMode && isLoadMore) {
+          loadOlderDiaries();
+          return;
+        }
+
+        // 結束漫遊模式
+        isRoamingMode = false;
+        const roamBar = document.getElementById("roamingBar");
+        if (roamBar) roamBar.classList.remove("active");
+        const newerCont = document.getElementById("loadNewerContainer");
+        if (newerCont) newerCont.style.display = "none";
+
         const container = document.getElementById("diaryContainer");
         const loadMoreBtn = document.getElementById("loadMoreBtn");
         const loadMoreContainer = document.getElementById("loadMoreContainer");
@@ -785,9 +865,22 @@
         });
       }
 
+      // --- 關鍵字與單日精準搜尋 ---
       function performSearch() {
         var keyword = document.getElementById("searchKeyword").value;
         var date = document.getElementById("searchDate").value;
+
+        // 若使用者沒有輸入關鍵字但選擇了日期，則推薦直接以該日跳轉漫遊
+        if (!keyword.trim() && date) {
+          performJumpToDate(date);
+          return;
+        }
+
+        isRoamingMode = false;
+        const roamBar = document.getElementById("roamingBar");
+        if (roamBar) roamBar.classList.remove("active");
+        const newerCont = document.getElementById("loadNewerContainer");
+        if (newerCont) newerCont.style.display = "none";
         document.getElementById("loadMoreContainer").style.display = "none";
         document.getElementById("diaryContainer").innerHTML = '<div style="text-align:center; padding:40px; color:rgba(255,255,255,0.7);">🔍 搜尋中...</div>';
         
@@ -800,14 +893,228 @@
         });
       }
 
+      // --- ✨ 跳轉至指定日期並載入前後鄰接日記 (核心功能) ---
+      async function performJumpToDate(targetDateInput) {
+        let target = targetDateInput;
+        if (!target) {
+          target = document.getElementById("searchDate").value;
+        }
+        if (!target) {
+          alert("請先選擇或輸入欲跳轉的日期！");
+          document.getElementById("searchDate").focus();
+          return;
+        }
+
+        // 標準化至 searchDate 輸入框 (YYYY-MM-DD)
+        const dateObj = new Date(target.replace(/-/g, "/"));
+        if (!isNaN(dateObj.getTime())) {
+          const yyyy = dateObj.getFullYear();
+          const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+          const dd = String(dateObj.getDate()).padStart(2, '0');
+          document.getElementById("searchDate").value = `${yyyy}-${mm}-${dd}`;
+        }
+
+        const container = document.getElementById("diaryContainer");
+        const loadMoreContainer = document.getElementById("loadMoreContainer");
+        const loadNewerContainer = document.getElementById("loadNewerContainer");
+        const roamingBar = document.getElementById("roamingBar");
+
+        loadMoreContainer.style.display = "none";
+        loadNewerContainer.style.display = "none";
+        roamingBar.classList.remove("active");
+        container.innerHTML = `<div style="text-align:center; padding:40px; color:rgba(255,255,255,0.85); font-size:16px;">🚀 正在前往 ${escapeHtml(target)} 並連線前後回憶...</div>`;
+
+        try {
+          const res = await apiCall('jumpToDate', { targetDate: target, radius: 10 });
+          if (res.success === false) throw new Error(res.message);
+
+          isRoamingMode = true;
+          roamCurrentTarget = res.targetDate; // yyyy/MM/dd
+          roamPrevDate = res.prevDate;
+          roamNextDate = res.nextDate;
+          roamMinRow = res.minRow;
+          roamMaxRow = res.maxRow;
+          roamHasOlder = res.hasOlder;
+          roamHasNewer = res.hasNewer;
+
+          const diaries = res.data || [];
+          allLoadedDiaries = diaries;
+
+          // 渲染日記，並將目標日期卡片標記為高亮
+          renderDiaries(diaries, false, roamCurrentTarget);
+
+          // 更新漫遊導覽列
+          updateRoamingBarUI(res.targetDate, res.exactMatch, res.prevDate, res.nextDate);
+
+          // 上方與下方雙向載入按鈕控制
+          if (roamHasNewer) {
+            loadNewerContainer.style.display = "block";
+            const newerBtn = document.getElementById("loadNewerBtn");
+            newerBtn.innerText = "⬆️ 載入更新的回憶";
+            newerBtn.disabled = false;
+          } else {
+            loadNewerContainer.style.display = "none";
+          }
+
+          if (roamHasOlder) {
+            loadMoreContainer.style.display = "block";
+            const olderBtn = document.getElementById("loadMoreBtn");
+            olderBtn.innerText = "⬇️ 載入更早的回憶";
+            olderBtn.disabled = false;
+          } else {
+            loadMoreContainer.style.display = "none";
+          }
+
+          // 平滑滾動至目標卡片
+          setTimeout(() => {
+            const targetEl = document.querySelector('.diary-card.target-highlight');
+            if (targetEl) {
+              targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else {
+              const firstCard = document.querySelector('.diary-card');
+              if (firstCard) firstCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }, 300);
+
+        } catch (err) {
+          container.innerHTML = `<div style="text-align:center; color:white; padding:30px;">❌ 跳轉失敗：${escapeHtml(err.message || "發生未知錯誤")}</div>`;
+        }
+      }
+
+      // --- ✨ 更新漫遊導覽列 UI ---
+      function updateRoamingBarUI(targetDate, exactMatch, prevDate, nextDate) {
+        const roamingBar = document.getElementById("roamingBar");
+        const dateText = document.getElementById("roamCurrentDateText");
+        const badge = document.getElementById("roamStatusBadge");
+        const subHint = document.getElementById("roamSubHint");
+        const prevBtn = document.getElementById("roamPrevBtn");
+        const nextBtn = document.getElementById("roamNextBtn");
+        const prevText = document.getElementById("roamPrevText");
+        const nextText = document.getElementById("roamNextText");
+
+        dateText.innerText = targetDate;
+
+        if (exactMatch) {
+          badge.innerText = "目標日";
+          badge.className = "roam-status-badge exact";
+          subHint.innerText = "已為您呈現當天及前後鄰接日記";
+        } else {
+          badge.innerText = "鄰近回憶";
+          badge.className = "roam-status-badge approx";
+          subHint.innerText = "此日無日記，已定位至最鄰近日期";
+        }
+
+        if (prevDate) {
+          prevBtn.disabled = false;
+          prevText.innerText = prevDate.slice(5); // 顯示 MM/DD
+          prevBtn.title = `前往上一篇：${prevDate}`;
+        } else {
+          prevBtn.disabled = true;
+          prevText.innerText = "已無更早";
+          prevBtn.title = "已是最初的日記";
+        }
+
+        if (nextDate) {
+          nextBtn.disabled = false;
+          nextText.innerText = nextDate.slice(5);
+          nextBtn.title = `前往下一篇：${nextDate}`;
+        } else {
+          nextBtn.disabled = true;
+          nextText.innerText = "已無更新";
+          nextBtn.title = "已是最新日記";
+        }
+
+        roamingBar.classList.add("active");
+      }
+
+      // --- ✨ 上一天 / 下一天 快捷漫遊 ---
+      function roamNavigate(direction) {
+        if (direction === 'prev' && roamPrevDate) {
+          performJumpToDate(roamPrevDate);
+        } else if (direction === 'next' && roamNextDate) {
+          performJumpToDate(roamNextDate);
+        }
+      }
+
+      // --- ✨ 漫遊模式：載入更新的日記 (向上) ---
+      async function loadNewerDiaries() {
+        const btn = document.getElementById("loadNewerBtn");
+        btn.innerText = "載入中...";
+        btn.disabled = true;
+
+        try {
+          const res = await apiCall('getNewerDiaries', { maxRow: roamMaxRow, limit: 10 });
+          const newerDiaries = res.data || [];
+          if (newerDiaries.length > 0) {
+            allLoadedDiaries = newerDiaries.concat(allLoadedDiaries);
+            roamMaxRow = res.maxRow;
+            roamHasNewer = res.hasNewer;
+
+            const firstCard = document.querySelector('.diary-card');
+            renderDiariesPrepended(newerDiaries);
+
+            if (firstCard) {
+              firstCard.scrollIntoView({ behavior: 'auto', block: 'start' });
+            }
+          }
+
+          if (!res.hasNewer) {
+            document.getElementById("loadNewerContainer").style.display = "none";
+          } else {
+            btn.innerText = "⬆️ 載入更新的回憶";
+            btn.disabled = false;
+          }
+        } catch (err) {
+          alert("❌ 載入更新回憶失敗: " + (err.message || err));
+          btn.innerText = "⬆️ 載入更新的回憶";
+          btn.disabled = false;
+        }
+      }
+
+      // --- ✨ 漫遊模式：載入更早的日記 (向下) ---
+      async function loadOlderDiaries() {
+        const btn = document.getElementById("loadMoreBtn");
+        btn.innerText = "載入中...";
+        btn.disabled = true;
+
+        try {
+          const res = await apiCall('getOlderDiaries', { minRow: roamMinRow, limit: 10 });
+          const olderDiaries = res.data || [];
+          if (olderDiaries.length > 0) {
+            allLoadedDiaries = allLoadedDiaries.concat(olderDiaries);
+            roamMinRow = res.minRow;
+            roamHasOlder = res.hasOlder;
+            renderDiaries(olderDiaries, true, roamCurrentTarget);
+          }
+
+          if (!res.hasOlder) {
+            document.getElementById("loadMoreContainer").style.display = "none";
+          } else {
+            btn.innerText = "⬇️ 載入更早的回憶";
+            btn.disabled = false;
+          }
+        } catch (err) {
+          alert("❌ 載入更早回憶失敗: " + (err.message || err));
+          btn.innerText = "⬇️ 載入更早的回憶";
+          btn.disabled = false;
+        }
+      }
+
       function resetSearch() {
         document.getElementById("searchKeyword").value = "";
         document.getElementById("searchDate").value = "";
+        const clrBtn = document.getElementById("clearKeywordBtn");
+        if (clrBtn) clrBtn.style.display = "none";
+        isRoamingMode = false;
+        const roamBar = document.getElementById("roamingBar");
+        if (roamBar) roamBar.classList.remove("active");
+        const newerCont = document.getElementById("loadNewerContainer");
+        if (newerCont) newerCont.style.display = "none";
         loadDiaries();
       }
 
-      // --- ✨ 渲染日記列表 (含多圖網格排版、標籤徽章與 AI 評語) ---
-      function renderDiaries(diaries, isLoadMore = false) {
+      // --- ✨ 渲染日記列表 (含多圖網格排版、標籤徽章與 AI 評語、支援目標日期高亮) ---
+      function renderDiaries(diaries, isLoadMore = false, highlightDate = "") {
         var container = document.getElementById("diaryContainer");
         
         if (!diaries || diaries.length === 0) {
@@ -906,7 +1213,19 @@
               </div>`;
           }).join("");
 
-          newHtml += '<div class="diary-card"><div class="diary-date-header">📅 ' + date + '</div>' + entriesHtml + '</div>';
+          const isTarget = highlightDate && (highlightDate === date);
+          const cardClass = isTarget ? "diary-card target-highlight" : "diary-card";
+          const indicatorHtml = isTarget ? '<span class="target-date-indicator">🎯 目標日</span>' : '';
+          const jumpBtnHtml = `<button type="button" class="date-quick-jump-btn" onclick="performJumpToDate('${date}')" title="以這一天為中心漫遊">🚀 漫遊此日</button>`;
+
+          newHtml += `
+            <div class="${cardClass}" id="card-${date.replace(/\//g, '-')}">
+              <div class="diary-date-header">
+                <div><span>📅 ${date}</span>${indicatorHtml}</div>
+                <div>${jumpBtnHtml}</div>
+              </div>
+              ${entriesHtml}
+            </div>`;
         });
 
         if (isLoadMore) {
@@ -914,6 +1233,97 @@
         } else {
            container.innerHTML = newHtml;
         }
+      }
+
+      // --- ✨ 向上追加較新日記 ---
+      function renderDiariesPrepended(diaries) {
+        var container = document.getElementById("diaryContainer");
+        if (!diaries || diaries.length === 0) return;
+
+        diaries.forEach(function(d) {
+          if (d && d.id) diaryCache[d.id] = d;
+        });
+
+        var groupedDiaries = {};
+        diaries.forEach(function(d) {
+          if (!groupedDiaries[d.dateStr]) groupedDiaries[d.dateStr] = [];
+          groupedDiaries[d.dateStr].push(d);
+        });
+
+        var sortedDates = Object.keys(groupedDiaries).sort(function(a, b) {
+          return new Date(b) - new Date(a);
+        });
+
+        let newHtml = "";
+
+        sortedDates.forEach(function(date) {
+          var dailyEntries = groupedDiaries[date];
+          dailyEntries.sort(function(a, b) { return a.time.localeCompare(b.time); });
+
+          var entriesHtml = dailyEntries.map(function(entry) {
+            let imageUrls = [];
+            if (entry.image && entry.image.trim() !== "") {
+              const matches = entry.image.matchAll(/\/d\/([a-zA-Z0-9_-]+)|id=([a-zA-Z0-9_-]+)/g);
+              for (const m of matches) {
+                const fileId = m[1] || m[2];
+                if (fileId) imageUrls.push("https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1600");
+              }
+            }
+
+            let galleryHtml = "";
+            const count = imageUrls.length;
+            if (count > 0) {
+              const gridClass = count === 1 ? "gallery-grid-1" : (count === 2 ? "gallery-grid-2" : (count === 3 ? "gallery-grid-3" : "gallery-grid-4"));
+              const displayUrls = count > 4 ? imageUrls.slice(0, 4) : imageUrls;
+              const itemsHtml = displayUrls.map((url, idx) => {
+                const isFourthAndMore = (idx === 3 && count > 4);
+                const moreBadge = isFourthAndMore ? `<div class="gallery-more-overlay">+${count - 3}</div>` : "";
+                const safeUrlArray = JSON.stringify(imageUrls).replace(/"/g, '&quot;');
+                return `<div class="gallery-item skeleton-shimmer" onclick="openLightbox(${safeUrlArray}, ${idx})"><img src="${url}" loading="lazy" onload="this.classList.add('loaded'); this.parentElement.classList.remove('skeleton-shimmer');" onerror="this.parentElement.style.display='none'">${moreBadge}</div>`;
+              }).join("");
+              galleryHtml = `<div class="gallery-grid ${gridClass}">${itemsHtml}</div>`;
+            }
+
+            let tagsHtml = "";
+            if (entry.tags && entry.tags.trim() !== "") {
+              const tagList = entry.tags.split(/[\s,]+/).filter(t => t.trim().length > 0);
+              tagsHtml = `<div style="margin-top:12px;">` + tagList.map(t => {
+                const clean = t.startsWith('#') ? t : ('#' + t);
+                return `<span class="tag-badge" onclick="filterByTag('${clean}')">${escapeHtml(clean)}</span>`;
+              }).join("") + `</div>`;
+            }
+
+            let aiHtml = "";
+            if (entry.ai_summary && entry.ai_summary.trim() !== "") {
+              aiHtml = `<div class="ai-summary-box"><span class="ai-summary-icon">🤖</span><div class="ai-summary-text">${escapeHtml(entry.ai_summary)}</div></div>`;
+            }
+
+            return `
+              <div class="diary-entry-item" style="border-bottom:1px dashed #eee; padding-bottom:20px; margin-bottom:20px; position:relative;">
+                <div style="position:absolute; top:0; right:0; display:flex; gap:8px;">
+                  <button onclick="openEditModal('${entry.id}')" style="background:none; border:none; cursor:pointer; font-size:1.2em; padding:5px; opacity:0.6;" title="編輯">✏️</button>
+                  <button onclick="deleteDiary('${entry.id}')" style="background:none; border:none; cursor:pointer; font-size:1.2em; padding:5px; opacity:0.6;" title="刪除">🗑️</button>
+                </div>
+                <div style="font-size:0.85em; color:#8898aa; margin-bottom:8px;">⏰ ${entry.time}</div>
+                <div id="content-${entry.id}" style="font-size:1.1em; line-height:1.7; color:#333; white-space: pre-wrap; margin-right:30px;">${linkify(entry.content)}</div>
+                ${galleryHtml}
+                ${tagsHtml}
+                ${aiHtml}
+              </div>`;
+          }).join("");
+
+          const jumpBtnHtml = `<button type="button" class="date-quick-jump-btn" onclick="performJumpToDate('${date}')" title="以這一天為中心漫遊">🚀 漫遊此日</button>`;
+          newHtml += `
+            <div class="diary-card" id="card-${date.replace(/\//g, '-')}">
+              <div class="diary-date-header">
+                <div><span>📅 ${date}</span></div>
+                <div>${jumpBtnHtml}</div>
+              </div>
+              ${entriesHtml}
+            </div>`;
+        });
+
+        container.insertAdjacentHTML('afterbegin', newHtml);
       }
 
       // --- ✨ 照片全螢幕燈箱 (Lightbox) 函式 ---
