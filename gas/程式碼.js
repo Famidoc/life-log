@@ -77,6 +77,10 @@ function doPost(e) {
     case 'getNewerDiaries':
       result = getNewerDiaries(payload.data.maxRow, payload.data.limit);
       break;
+
+    case 'sortLogs':
+      result = sortLogsByDate();
+      break;
       
     default:
       result = { success: false, message: "找不到對應的 API 動作：" + payload.action };
@@ -96,59 +100,136 @@ function saveDiaryV8(payload) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("Logs");
+    if (!sheet) {
+      return { success: false, message: "找不到 Logs 工作表" };
+    }
     const props = PropertiesService.getScriptProperties();
     const folderId = props.getProperty("DRIVE_FOLDER_ID");
-    
+    const tz = Session.getScriptTimeZone();
+
     // --- 1. 準備共用資料 ---
     const now = new Date();
     let targetDate = now;
     if (payload.customDate) {
-      targetDate = new Date(payload.customDate);
-      targetDate.setHours(12, 0, 0); 
+      const dateMatch = String(payload.customDate).trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+      if (dateMatch) {
+        targetDate = new Date(
+          parseInt(dateMatch[1], 10),
+          parseInt(dateMatch[2], 10) - 1,
+          parseInt(dateMatch[3], 10),
+          12, 0, 0
+        );
+      } else {
+        targetDate = new Date(payload.customDate);
+        targetDate.setHours(12, 0, 0);
+      }
     }
-    const dateStr = Utilities.formatDate(targetDate, Session.getScriptTimeZone(), "yyyy/MM/dd");
-    const timeStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "HH:mm"); 
+    const dateStr = Utilities.formatDate(targetDate, tz, "yyyy/MM/dd");
+    const rawCustomTime = (payload.customTime !== undefined && payload.customTime !== null)
+      ? String(payload.customTime).trim()
+      : "";
+    const timeStr = rawCustomTime ? rawCustomTime : Utilities.formatDate(now, tz, "HH:mm");
     const content = payload.content || "";
     const tags = payload.tags || "";
 
-    // --- 2. 處理檔案上傳 (支援多圖，合入同一筆日記) ---
+    // --- 2. ID 與冪等防重複檢查 ---
+    const rawCustomId = (payload.customId !== undefined && payload.customId !== null)
+      ? String(payload.customId).trim()
+      : "";
+    const id = rawCustomId ? rawCustomId : Utilities.formatDate(new Date(), tz, "yyyyMMdd-HHmmss");
+
+    if (rawCustomId) {
+      const lastRow = sheet.getLastRow();
+      if (lastRow >= 2) {
+        const existingIds = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+        for (let i = 0; i < existingIds.length; i++) {
+          if (String(existingIds[i][0]).trim() === rawCustomId) {
+            return {
+              success: true,
+              skipped: true,
+              message: "已存在相同 ID，略過重複匯入",
+              data: { id: rawCustomId }
+            };
+          }
+        }
+      }
+    }
+
+    // --- 3. 處理檔案上傳 (支援多圖，任一張失敗則回復不留殘缺資料) ---
     const files = payload.files || [];
     let uploadedCount = 0;
     let uploadedUrls = [];
-    const id = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd-HHmmss");
+    let createdFiles = [];
 
-    if (files.length > 0 && folderId) {
-      const folder = DriveApp.getFolderById(folderId);
-      files.forEach((fileData, index) => {
-        try {
-          if (fileData && fileData.data) {
-            const dataParts = fileData.data.split(',');
-            const base64String = dataParts[1];
-            const decodedBytes = Utilities.base64Decode(base64String);
-            const blob = Utilities.newBlob(decodedBytes, fileData.type || 'image/jpeg', fileData.name || ('photo_' + index + '.jpg'));
-            const file = folder.createFile(blob);
-            file.setName(id + '_' + index + '_' + file.getName());
-            uploadedUrls.push(file.getUrl());
-            uploadedCount++;
+    if (files.length > 0) {
+      if (!folderId) {
+        debugLog.push("未設定 DRIVE_FOLDER_ID");
+      } else {
+        const folder = DriveApp.getFolderById(folderId);
+        files.forEach((fileData, index) => {
+          try {
+            if (fileData && fileData.data) {
+              const dataParts = fileData.data.split(',');
+              const base64String = dataParts.length > 1 ? dataParts[1] : dataParts[0];
+              const decodedBytes = Utilities.base64Decode(base64String);
+              const blob = Utilities.newBlob(
+                decodedBytes,
+                fileData.type || 'image/jpeg',
+                fileData.name || ('photo_' + index + '.jpg')
+              );
+              const file = folder.createFile(blob);
+              file.setName(id + '_' + index + '_' + file.getName());
+              createdFiles.push(file);
+              uploadedUrls.push(file.getUrl());
+              uploadedCount++;
+            } else {
+              debugLog.push('檔案 ' + (index + 1) + ' 缺少圖片資料');
+            }
+          } catch (e) {
+            debugLog.push('檔案 ' + (index + 1) + ' 上傳失敗: ' + e.message);
           }
-        } catch (e) {
-          debugLog.push('檔案 ' + (index + 1) + ' 上傳失敗: ' + e.message);
-        }
-      });
+        });
+      }
+
+      if (uploadedCount < files.length) {
+        createdFiles.forEach(file => {
+          try { file.setTrashed(true); } catch (trashErr) {}
+        });
+        return {
+          success: false,
+          message: "部分照片上傳失敗: " + debugLog.join("; "),
+          data: {
+            uploadedCount: uploadedCount,
+            expectedCount: files.length,
+            debugLog: debugLog
+          }
+        };
+      }
     }
 
-    // --- 3. 生成 AI 溫暖生活評語 (Gemini 2.5 Flash) ---
+    // --- 4. 生成 AI 溫暖生活評語 (Gemini 2.5 Flash) ---
     let aiSummary = "";
-    try {
-      aiSummary = generateAISummary(content);
-    } catch (aiErr) {
-      console.log("AI Summary 生成略過: " + aiErr.message);
+    if (payload.skipAI !== true) {
+      try {
+        aiSummary = generateAISummary(content);
+      } catch (aiErr) {
+        console.log("AI Summary 生成略過: " + aiErr.message);
+      }
     }
 
     // 寫入試算表 (第 5 欄多圖網址以換行分隔，第 7 欄為 AI 評語)
     const mediaLinks = uploadedUrls.join("\n");
     sheet.appendRow([id, dateStr, timeStr, content, mediaLinks, tags, aiSummary, ""]);
     _formatLastRow(sheet);
+
+    // 補寫舊日期時自動依日期排序 (批次匯入可傳入 skipSort: true 最後統一排序)
+    if (payload.customDate && !payload.skipSort) {
+      try {
+        sortLogsByDate();
+      } catch (sortErr) {
+        console.log("自動排序略過: " + sortErr.message);
+      }
+    }
 
     let msg = "已儲存日記！";
     if (uploadedCount > 0) {
@@ -161,12 +242,120 @@ function saveDiaryV8(payload) {
     return { 
       success: true, 
       message: msg,
-      data: { id: id, ai_summary: aiSummary }
+      data: {
+        id: id,
+        ai_summary: aiSummary,
+        uploadedCount: uploadedCount,
+        expectedCount: files.length
+      }
     };
     
   } catch (error) {
     return { success: false, message: "❌ 系統錯誤：" + error.message };
   }
+}
+
+/**
+ * 依日期 (與時間、ID) 由舊到新穩定排序 Logs 工作表
+ */
+function sortLogsByDate() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("Logs");
+    if (!sheet) {
+      return { success: false, message: "找不到 Logs 工作表" };
+    }
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 2) {
+      return { success: true, sortedCount: 0, message: "無需排序" };
+    }
+
+    const lastCol = Math.max(8, sheet.getLastColumn());
+    const range = sheet.getRange(2, 1, lastRow - 1, lastCol);
+
+    if (range.getMergedRanges().length > 0) {
+      return { success: false, message: "Logs 工作表含有合併儲存格，中止排序以避免覆寫錯誤" };
+    }
+    const formulas = range.getFormulas();
+    for (let r = 0; r < formulas.length; r++) {
+      for (let c = 0; c < formulas[r].length; c++) {
+        if (formulas[r][c]) {
+          return {
+            success: false,
+            message: "Logs 工作表第 " + (r + 2) + " 列第 " + (c + 1) + " 欄含有公式，中止排序以避免覆寫"
+          };
+        }
+      }
+    }
+
+    const rows = range.getValues();
+    const tz = Session.getScriptTimeZone();
+
+    const keyed = rows.map((row, origIdx) => ({
+      row: row,
+      dateKey: _normalizeSortDateKey(row[1], tz),
+      timeKey: _normalizeSortTimeKey(row[2]),
+      idKey: String(row[0] || ""),
+      origIdx: origIdx
+    }));
+
+    keyed.sort((a, b) => {
+      if (a.dateKey !== b.dateKey) return a.dateKey < b.dateKey ? -1 : 1;
+      if (a.timeKey !== b.timeKey) return a.timeKey < b.timeKey ? -1 : 1;
+      if (a.idKey !== b.idKey) return a.idKey < b.idKey ? -1 : 1;
+      return a.origIdx - b.origIdx;
+    });
+
+    const sortedRows = keyed.map(item => item.row);
+    range.setValues(sortedRows);
+
+    sheet.getRange(2, 2, sortedRows.length, 1).setNumberFormat("yyyy/MM/dd");
+    sheet.setRowHeights(2, sortedRows.length, 30);
+    sheet.getRange(2, 1, sortedRows.length, 8)
+      .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP)
+      .setVerticalAlignment("middle");
+
+    return {
+      success: true,
+      sortedCount: sortedRows.length,
+      message: "已依日期由舊到新排序共 " + sortedRows.length + " 筆日記"
+    };
+  } catch (e) {
+    return { success: false, message: "排序失敗：" + e.message };
+  }
+}
+
+function _normalizeSortDateKey(val, tz) {
+  if (!val) return "9999/99/99";
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    return Utilities.formatDate(val, tz, "yyyy/MM/dd");
+  }
+  const s = String(val).trim();
+  const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m) {
+    const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10), 12, 0, 0);
+    if (!isNaN(d.getTime())) {
+      return Utilities.formatDate(d, tz, "yyyy/MM/dd");
+    }
+  }
+  const parsed = new Date(s.replace(/-/g, "/"));
+  if (!isNaN(parsed.getTime())) {
+    return Utilities.formatDate(parsed, tz, "yyyy/MM/dd");
+  }
+  return "9999/99/99";
+}
+
+function _normalizeSortTimeKey(val) {
+  if (val && typeof val.getHours === 'function' && !isNaN(val.getTime())) {
+    return String(val.getHours()).padStart(2, '0') + ":" + String(val.getMinutes()).padStart(2, '0');
+  }
+  const s = String(val || "").trim();
+  const m = s.match(/^(\d{1,2}):(\d{1,2})/);
+  if (m) {
+    return String(parseInt(m[1], 10)).padStart(2, '0') + ":" + String(parseInt(m[2], 10)).padStart(2, '0');
+  }
+  return s;
 }
 
 /**
